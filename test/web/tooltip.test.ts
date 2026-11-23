@@ -9,7 +9,7 @@ const ag = (id: string, o: Partial<Agent> = {}): Agent => ({
   status: 'busy', startedAt: 0, lastActivityAt: 0, ...o,
 });
 const actor = (id: string, x: number, y: number): Actor => ({
-  agent: ag(id), x, y, phase: 'seated', pose: 'work', shownRole: 'builder', phaseT: 0,
+  agent: ag(id), x, y, phase: 'seated', pose: 'work', shownRole: 'builder', phaseT: 0, atMachine: false,
 });
 
 describe('hitTest', () => {
