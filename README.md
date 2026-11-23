@@ -122,7 +122,7 @@ The script needs `sh` and `curl`; `jq` is used if present but not required.
 - `~/.claude` is only read, never written.
 - No telemetry, no analytics, no network calls to third parties. Nothing leaves your machine.
 - Laya is off unless you enable it (`--with-laya` or `LAYA_URL`). When enabled, sub-agent names and descriptions are sent to that Laya server, which normally runs locally.
-- `--with-laya` and `agent-office laya` run `uvx`, which on first use downloads the `laya` package and its dependencies from PyPI and the classifier model from Hugging Face. After that they run from the local cache.
+- `--with-laya` and `agent-office laya` run `uvx`, which on first use downloads the `laya` package and its dependencies from PyPI and the classifier model from Hugging Face. After that they run from the local cache. The model download uses plain HTTPS (`HF_HUB_DISABLE_XET=1` is set by default because the Xet CDN download tends to fail with `CAS Client Error`); set `HF_HUB_DISABLE_XET=0` to opt back in.
 - The app writes only a port file in `~/.config/agent-office/` and a role cache in `~/.cache/agent-office/`.
 
 ## Known limits

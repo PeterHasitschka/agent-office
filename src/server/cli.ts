@@ -73,7 +73,9 @@ function spawnLaya(): ChildProcess | null {
     return null;
   }
   const child = spawn('uvx', ['--from', 'laya[serve]', 'laya-serve'], {
-    stdio: 'inherit', env: { ...process.env, LAYA_PRELOAD: '1' },
+    // HF_HUB_DISABLE_XET: the Xet CDN download of the ~850 MB model fails with
+    // "CAS Client Error"; plain HTTPS works. User can override with HF_HUB_DISABLE_XET=0.
+    stdio: 'inherit', env: { HF_HUB_DISABLE_XET: '1', ...process.env, LAYA_PRELOAD: '1' },
   });
   child.on('error', (e) => console.error(`Laya konnte nicht gestartet werden (${e.message}) – agent-office läuft ohne weiter.`));
   return child;
