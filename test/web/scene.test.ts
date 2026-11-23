@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Snapshot, Status, RoleId } from '../../src/shared/types.js';
 import { layoutBuilding } from '../../src/web/layout.js';
+import { SPRITE_W, SPRITE_H } from '../../src/web/sprites.js';
 import { Scene, changeProgress, CHANGE_MS, WALK_SPEED, ELEVATOR_SPEED, WAKE_MS } from '../../src/web/scene.js';
 
 const ag = (id: string, o: Partial<Agent> = {}): Agent => ({
@@ -247,6 +248,31 @@ describe('Scene', () => {
       expect(a.phase).toBe('changing');
       sc.tick(16);
       expect(a.atMachine).toBe(true);
+    });
+
+    it('removing the first machine never leaves an actor outside its floor rect after the next tick', () => {
+      const sc = new Scene();
+      const two = new Map([['f', [{ name: 'a', category: 'review' as const }, { name: 'b', category: 'review' as const }]]]);
+      const s1 = snap({ ...withSkill(ag('lead')), activeSkill: { name: 'b', category: 'review', since: 1 } },
+        { ...ag('u'), activeSkill: { name: 'a', category: 'review', since: 1 } });
+      sc.update(s1, layoutBuilding(s1, { machines: two }));
+      run(sc, 60000);
+      const lead = sc.actors().find(x => x.agent.id === 'lead')!;
+      expect(lead.atMachine).toBe(true);
+      const s2 = snap({ ...withSkill(ag('lead')), activeSkill: { name: 'b', category: 'review', since: 1 } }, ag('u'));
+      const l2 = layoutBuilding(s2, { machines: new Map([['f', [{ name: 'b', category: 'review' as const }]]]) });
+      const f = l2.floors[0].rect;
+      expect(lead.x + SPRITE_W).toBeGreaterThan(f.x + f.w); // stale x is outside the narrower building
+      sc.update(s2, l2);
+      sc.tick(16);
+      for (const a of sc.actors()) {
+        expect(a.x).toBeGreaterThanOrEqual(0);
+        expect(a.x + SPRITE_W).toBeLessThanOrEqual(f.x + f.w);
+        expect(a.y).toBeGreaterThanOrEqual(f.y);
+        expect(a.y + SPRITE_H).toBeLessThanOrEqual(f.y + f.h);
+      }
+      run(sc, 60000);
+      expect([lead.x, lead.y]).toEqual([l2.spotFor('lead')!.x, l2.spotFor('lead')!.y]);
     });
 
     it('agent without a spot on its floor stays at its desk', () => {

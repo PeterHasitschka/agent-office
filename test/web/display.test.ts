@@ -55,6 +55,23 @@ describe('DisplayState', () => {
     ]);
   });
 
+  it('keeps machine order stable while held; a recreated machine appends at the end', () => {
+    const d = new DisplayState();
+    const names = () => (d.machines().get('f') ?? []).map(m => m.name);
+    d.update(snap(ag('a', 'x'), ag('b', 'y')), 0);
+    expect(names()).toEqual(['x', 'y']);
+    d.update(snap(ag('a'), ag('b', 'y')), 1000);
+    d.update(snap(ag('a'), ag('b', 'y'), ag('c', 'z')), 2000); // x dropped from display → held (last used 1000)
+    expect(names()).toEqual(['x', 'y', 'z']);
+    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 3000);
+    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 4000); // y held too (last used 3000)
+    expect(names()).toEqual(['x', 'y', 'z']);
+    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 11_500); // x expired, y still held
+    expect(names()).toEqual(['y', 'z']);
+    d.update(snap(ag('a', 'x'), ag('b'), ag('c', 'z')), 11_800);
+    expect(names()).toEqual(['y', 'z', 'x']);
+  });
+
   describe('spotIndex', () => {
     const two = (a?: string, b?: string, c?: string) => snap(ag('a', a), ag('b', b), ...(c ? [ag('c', c)] : []));
     it('keeps remaining users stable when the first leaves, and reuses the freed index', () => {

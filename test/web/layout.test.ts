@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Room, Snapshot } from '../../src/shared/types.js';
 import {
-  layoutBuilding, truncateLabel, type Rect, BASE_FLOOR_H, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W, MACHINE_W, MACHINE_H,
+  layoutBuilding, truncateLabel, machinePlateRect, type Rect, BASE_FLOOR_H, SKILLS_SIGN_W, ROOM_PAD, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W, MACHINE_W, MACHINE_H,
 } from '../../src/web/layout.js';
 import { SPRITE_W, SPRITE_H, HEADROOM, PROP_W } from '../../src/web/sprites.js';
 
@@ -110,7 +110,7 @@ describe('layoutBuilding skills room', () => {
     const boxes: Rect[] = [];
     for (const m of sr.machines) {
       boxes.push({ x: m.x, y: m.y, w: MACHINE_W, h: MACHINE_H });
-      expect(m.spots.length).toBeGreaterThanOrEqual(4);
+      expect(m.spots.length).toBeGreaterThanOrEqual(2);
       for (const p of m.spots) boxes.push({ x: p.x, y: p.y, w: SPRITE_W, h: SPRITE_H });
     }
     for (const b of boxes) {
@@ -149,5 +149,59 @@ describe('layoutBuilding skills room', () => {
     expect(l.spotFor('u1')).toEqual({ x: mach.spots[5].x, y: mach.spots[5].y });
     const r = l.floors[0].skillRoom!.rect;
     expect(mach.spots[5].y + SPRITE_H).toBeLessThanOrEqual(r.y + r.h);
+  });
+
+  const hit = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+
+  it('sizes a machine slot by the columns it uses (1 col per side for <= 2 users, else 2)', () => {
+    const one = layoutBuilding(skillSnap(['x']), { machines: machinesFor(['x']) }).floors[0].skillRoom!;
+    const m1 = one.machines[0];
+    expect(m1.slot.w).toBe(MACHINE_W + 2 * SPRITE_W);
+    expect(m1.spots).toHaveLength(2);
+    expect(one.rect.w).toBe(Math.max(64, SKILLS_SIGN_W + m1.slot.w + ROOM_PAD));
+    const three = layoutBuilding(skillSnap(['x', 'x', 'x']), { machines: machinesFor(['x']) }).floors[0].skillRoom!;
+    expect(three.machines[0].slot.w).toBe(MACHINE_W + 4 * SPRITE_W);
+    const idle = layoutBuilding(skillSnap(['y']), { machines: machinesFor(['x', 'y']) }).floors[0].skillRoom!;
+    expect(idle.machines[0].slot.w).toBe(MACHINE_W + 2 * SPRITE_W); // held machine without users: 1 col
+  });
+
+  it('maps spot indices deterministically: inner-left, inner-right, outer-left, outer-right, next row', () => {
+    const l = layoutBuilding(skillSnap(['x', 'x', 'x', 'x', 'x']), { machines: machinesFor(['x']) });
+    const m = l.floors[0].skillRoom!.machines[0];
+    const top = m.spots[0].y;
+    expect(m.spots.slice(0, 5).map(p => [p.x - m.x, p.y - top])).toEqual([
+      [-SPRITE_W, 0], [MACHINE_W, 0], [-2 * SPRITE_W, 0], [MACHINE_W + SPRITE_W, 0], [-SPRITE_W, ROW_H],
+    ]);
+    expect(m.slot.x).toBe(m.x - 2 * SPRITE_W);
+    for (let i = 0; i < 5; i++) expect(l.spotFor(`u${i}`)).toEqual({ x: m.spots[i].x, y: m.spots[i].y });
+  });
+
+  it('name plates sit on the floor strip below their slot: no headroom, spot, machine or sign overlap', () => {
+    for (const names of [['s0', 's1', 's2', 's3', 's4', 's0', 's1', 's2', 's0'], Array.from({ length: 6 }, () => 'solo'), ['a']]) {
+      const l = layoutBuilding(skillSnap(names), { machines: machinesFor(names) });
+      const sr = l.floors[0].skillRoom!;
+      const plates = sr.machines.map(m => machinePlateRect(sr.rect, m));
+      const keepOut: Rect[] = [{ x: sr.rect.x, y: sr.rect.y, w: SKILLS_SIGN_W, h: sr.rect.h + 8 }]; // SKILLS door sign strip
+      for (const m of sr.machines) {
+        keepOut.push({ x: m.x, y: m.y, w: MACHINE_W, h: MACHINE_H });
+        for (const p of m.spots) {
+          keepOut.push({ x: p.x, y: p.y - HEADROOM, w: SPRITE_W, h: HEADROOM }); // bubbles / zZ
+          keepOut.push({ x: p.x, y: p.y, w: SPRITE_W, h: SPRITE_H });
+        }
+      }
+      plates.forEach((pl, i) => {
+        const m = sr.machines[i];
+        expect(pl.x).toBeGreaterThanOrEqual(m.slot.x);
+        expect(pl.x + pl.w).toBeLessThanOrEqual(m.slot.x + m.slot.w);
+        expect(pl.y).toBe(sr.rect.y + sr.rect.h - 4);
+        for (const k of keepOut) expect(hit(pl, k), JSON.stringify([pl, k])).toBe(false);
+        plates.forEach((o, j) => { if (j !== i) expect(hit(pl, o)).toBe(false); });
+      });
+    }
+  });
+
+  it('a single-user floor is much narrower than before (no unused outer columns)', () => {
+    const l = layoutBuilding(skillSnap(['a', 'b']), { machines: machinesFor(['a', 'b']) });
+    expect(l.floors[0].skillRoom!.rect.w).toBe(SKILLS_SIGN_W + 2 * (MACHINE_W + 2 * SPRITE_W) + ROOM_PAD);
   });
 });

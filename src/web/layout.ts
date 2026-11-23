@@ -8,8 +8,11 @@ export interface Rect { x: number; y: number; w: number; h: number }
  *  The desk prop occupies x+SPRITE_W .. x+SPRITE_W+PROP_W; the full slot spans y-HEADROOM .. y+SPRITE_H. */
 export interface DeskSlot { agentId: string; x: number; y: number }
 export interface RoomLayout { roomId: string; rect: Rect; label: string; desks: DeskSlot[]; lit: boolean }
-/** Machine at (x, y) top-left; spots are sprite-box positions (same convention as DeskSlot), agentId '' until assigned. */
-export interface MachineLayout { name: string; category: SkillCategory; x: number; y: number; spots: DeskSlot[] }
+/** Machine at (x, y) top-left; spots are sprite-box positions (same convention as DeskSlot), agentId '' until assigned.
+ *  `slot` = the machine's horizontal band (machine + its standing columns); its name plate sits on the floor strip below. */
+export interface MachineLayout {
+  name: string; category: SkillCategory; x: number; y: number; spots: DeskSlot[]; slot: { x: number; w: number };
+}
 export interface FloorLayout {
   floorId: string; rect: Rect; label: string; rooms: RoomLayout[];
   skillRoom?: { rect: Rect; machines: MachineLayout[] };
@@ -34,9 +37,19 @@ export const ROOF_H = 8;
 export const FLOOR_LABEL_MAX = 18;
 export const MACHINE_W = 28;
 export const MACHINE_H = 22;
-const SPOT_COLS_PER_SIDE = 2;                      // standing columns on each side of a machine
+/** Left strip of the SKILLS room reserved for its "SKILLS" door sign on the floor strip. */
+export const SKILLS_SIGN_W = 34;
+const SPOT_COLS_PER_SIDE = 2;                      // max standing columns on each side of a machine
 const SPOTS_PER_ROW = SPOT_COLS_PER_SIDE * 2;
-const MACHINE_PITCH = MACHINE_W + SPOTS_PER_ROW * SPRITE_W;
+/** Columns per side a machine needs for `users` (= highest spot index + 1): 1 for up to 2 users, else 2. */
+const colsPerSide = (users: number) => Math.min(SPOT_COLS_PER_SIDE, Math.max(1, Math.ceil(users / 2)));
+const slotWidth = (users: number) => MACHINE_W + 2 * colsPerSide(users) * SPRITE_W;
+const PLATE_H = 8;
+
+/** Name plate of a machine: on the floor strip + slab below its slot (like room door signs), never in the headroom. */
+export function machinePlateRect(room: Rect, m: MachineLayout): Rect {
+  return { x: m.slot.x + 1, y: room.y + room.h - 4, w: m.slot.w - 2, h: PLATE_H };
+}
 
 export function truncateLabel(text: string, maxChars: number): string {
   if (maxChars <= 0) return '';
@@ -81,11 +94,13 @@ export function layoutBuilding(s: Snapshot, opts: {
     }
     return byName;
   });
-  const machineRows = (fi: number, name: string) =>
-    Math.max(1, Math.ceil((Math.max(-1, ...(usersOf[fi].get(name)?.keys() ?? [])) + 1) / SPOTS_PER_ROW));
+  const usersAt = (fi: number, name: string) => Math.max(-1, ...(usersOf[fi].get(name)?.keys() ?? [])) + 1;
+  const machineRows = (fi: number, name: string) => Math.max(1, Math.ceil(usersAt(fi, name) / SPOTS_PER_ROW));
   const skillRoomW = (fi: number) => {
-    const n = machinesOf(s.floors[fi].id).length;
-    return n === 0 ? 0 : Math.max(ROOM_MIN_W, 2 * ROOM_PAD + n * MACHINE_PITCH);
+    const ms = machinesOf(s.floors[fi].id);
+    if (ms.length === 0) return 0;
+    const slots = ms.reduce((sum, m) => sum + slotWidth(usersAt(fi, m.name)), 0);
+    return Math.max(ROOM_MIN_W, SKILLS_SIGN_W + slots + ROOM_PAD);
   };
   const floorW = s.floors.map((f, fi) =>
     f.rooms.reduce((sum, r) => sum + widthOf(r.ended ? 0 : r.agents.length), 0) + skillRoomW(fi));
@@ -130,14 +145,19 @@ export function layoutBuilding(s: Snapshot, opts: {
     const ms = machinesOf(f.id);
     if (ms.length) {
       const rect: Rect = { x: rx, y, w: skillRoomW(fi), h: h - SLAB_H };
-      const machines: MachineLayout[] = ms.map((m, mi) => {
-        const mx = rect.x + ROOM_PAD + mi * MACHINE_PITCH + SPOT_COLS_PER_SIDE * SPRITE_W;
+      let sx = rect.x + SKILLS_SIGN_W;
+      const machines: MachineLayout[] = ms.map(m => {
+        const users = usersAt(fi, m.name);
+        const cols = colsPerSide(users);
+        const slot = { x: sx, w: slotWidth(users) };
+        sx += slot.w;
+        const mx = slot.x + cols * SPRITE_W;
         const rows = machineRows(fi, m.name);
         const rowTop = (row: number) => y + FLOOR_MARGIN + row * ROW_H + HEADROOM;
         const slots: DeskSlot[] = [];
         for (let row = 0; row < rows; row++) {
-          // fill order per row: inner-left, inner-right, outer-left, outer-right
-          for (let c = 0; c < SPOT_COLS_PER_SIDE; c++) {
+          // fill order per row: inner-left, inner-right, outer-left, outer-right (index = row*4 + c*2 + side)
+          for (let c = 0; c < cols; c++) {
             slots.push({ agentId: '', x: mx - (c + 1) * SPRITE_W, y: rowTop(row) });
             slots.push({ agentId: '', x: mx + MACHINE_W + c * SPRITE_W, y: rowTop(row) });
           }
@@ -146,7 +166,7 @@ export function layoutBuilding(s: Snapshot, opts: {
           slots[i].agentId = id;
           spots.set(id, { x: slots[i].x, y: slots[i].y });
         }
-        return { name: m.name, category: m.category, x: mx, y: rowTop(0) + SPRITE_H - MACHINE_H, spots: slots };
+        return { name: m.name, category: m.category, x: mx, y: rowTop(0) + SPRITE_H - MACHINE_H, spots: slots, slot };
       });
       skillRoom = { rect, machines };
     }

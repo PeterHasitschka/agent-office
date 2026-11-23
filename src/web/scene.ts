@@ -1,6 +1,6 @@
 // Pure scene actor lifecycle. No DOM, no timers; time advances only via tick(dtMs).
 import type { Agent, RoleId, Snapshot, Status } from '../shared/types.js';
-import { type BuildingLayout, ELEVATOR_W } from './layout.js';
+import { type BuildingLayout, ELEVATOR_W, SLAB_H } from './layout.js';
 import { SPRITE_W, SPRITE_H, type Pose } from './sprites.js';
 
 export type ActorPhase =
@@ -25,6 +25,7 @@ export function changeProgress(a: Actor): number {
   return a.phase === 'changing' ? Math.min(1, Math.max(0, a.phaseT / CHANGE_MS)) : 0;
 }
 
+const ON_FLOOR = new Set<ActorPhase>(['seated', 'walking-in', 'leaving-desk', 'waking', 'changing']);
 const STATUS_POSE: Record<Status, Pose> = { busy: 'work', idle: 'idle', done: 'sleep', waiting: 'wave' };
 
 interface Pt { x: number; y: number }
@@ -71,7 +72,7 @@ export class Scene {
         || act.phase === 'seated' || act.phase === 'changing' || act.phase === 'waking') this.setPhase(act, 'leaving-desk');
     }
     if (agents.size > 0) this.first = false; // "first" = first update that actually contains agents
-    for (const act of this.map.values()) this.updatePose(act);
+    for (const act of this.map.values()) { if (ON_FLOOR.has(act.phase)) this.clampToFloor(act); this.updatePose(act); }
   }
 
   tick(dtMs: number): void {
@@ -109,6 +110,18 @@ export class Scene {
     if (sp) return { x: sp.x, y: sp.y, spot: true };
     const d = this.desks.get(id);
     return d ? { x: d.x, y: d.y, spot: false } : null;
+  }
+
+  /** Keeps an on-floor actor inside its floor after a layout change (the building may have narrowed or floors moved),
+   *  so it never walks back from a stale position outside the facade. Floor = the one holding its target, else its feet. */
+  private clampToFloor(a: Actor): void {
+    const t = this.target(a.agent.id);
+    const ref = t ? t.y : a.y + SPRITE_H - 1;
+    const f = this.layout!.floors.find(fl => ref >= fl.rect.y && ref < fl.rect.y + fl.rect.h);
+    if (!f) return;
+    const r = f.rect;
+    a.x = Math.max(0, Math.min(a.x, r.x + r.w - SPRITE_W));
+    a.y = Math.max(r.y, Math.min(a.y, r.y + r.h - SLAB_H - SPRITE_H));
   }
 
   /** Horizontal first on the current row, then vertical, both at walk speed. */
