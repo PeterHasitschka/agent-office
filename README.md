@@ -66,6 +66,56 @@ Keywords are regular-expression fragments (case-insensitive), so characters such
 }
 ```
 
+## Skill corner
+
+When a lead or sub-agent is working with a skill, its figure walks to a machine in a "SKILLS" room on the right side of the floor and uses it there. The room only exists while someone on that floor has an active skill, and each skill in use gets its own machine with a name sign (two skills of the same category are two machines that look alike).
+
+What counts as a skill use (the latest one wins):
+
+- a `Skill` tool call in the transcript (for example `acme:deploy-helper`),
+- a slash command you typed, such as `/my-review`. Built-in commands like `/clear`, `/model` or `/mcp` are not skills and are ignored (see `ignoreCommands` below).
+
+A skill is shown as active only while the figure is busy or waiting for you (sub-agents: busy) and the skill was used less than 15 minutes ago. Once the agent goes idle or finishes, or the 15 minutes pass, the figure walks back to its desk. To avoid flicker, a figure only leaves the machine after the skill is missing from two snapshots in a row, and an unused machine stays for 10 s so the floor does not shrink under figures that are still walking away.
+
+Each skill gets a category by keyword rules, matched against the skill name (including a plugin prefix) first and then against its description from Claude Code's skill listing (only keywords of 4 or more characters, otherwise nearly everything matches). Matching works like for roles: keywords match at the start of a word, and the first category in the table wins. So `writing-plans` is `planning` and `test-driven-development` is `testing`. A sub-agent that would otherwise be an `intern` takes the look of its skill's category (`ideas`/`planning` as strategist, `debugging` as doctor, `review` as critic, `testing` as lab, `git`/`writing` as poet, `design` as artist, `running` as janitor); explicit role rules still win.
+
+| Category | Keywords | Machine |
+|---|---|---|
+| `ideas` | brainstorm, grill, idea | bean-bag circle with a light bulb |
+| `planning` | plan | blueprint table |
+| `debugging` | debug, diagnos, bug | workbench with a soldering iron |
+| `review` | review, audit | magnifier desk |
+| `testing` | test, tdd, verif | test rig with a traffic light |
+| `git` | commit, pr, branch, merge | post station with parcels |
+| `writing` | doc, writ, blog, readme | typewriter |
+| `design` | design, figma, artifact, ui | easel |
+| `running` | run, deploy, loop, schedule | rocket launch pad |
+| `other` | none (fallback) | vending machine ("Skill-O-Mat") with the skill name on the sign |
+
+The defaults live in `roles/skills.json`. If you start with Laya enabled, skills the keywords cannot place are classified by Laya as well (one question over the categories, using `name: description`); otherwise they land in `other`. Results are cached in `~/.cache/agent-office/skills.json`.
+
+### Customizing skills
+
+Create `~/.config/agent-office/skills.json`. Like the role override it works per id: a category may override `keywords`, `label` and `laya`; unknown category ids and a broken file are ignored. Keywords are case-insensitive regular-expression fragments, so escape special characters. `ignoreCommands` adds slash commands (without the `/`) to the built-in list of commands that should not count as skills.
+
+```json
+{
+  "categories": {
+    "running": { "keywords": ["run", "deploy", "ship"] },
+    "git": { "keywords": ["commit", "pr", "my-release"] }
+  },
+  "ignoreCommands": ["my-timer", "my-standup"]
+}
+```
+
+## Staff
+
+Sub-agents of the same type in one session are one recurring employee, not a new figure per run. A `reviewer` that was started five times is one persona with five runs; the tooltip shows its role, "5th run" and up to three recent tasks. If two instances of a type run at the same time, the second one shows up as a colleague named `reviewer 2` (and so on). Personas never span sessions, so two worktrees have separate teams.
+
+- An employee who was done or idle and starts working again stretches and picks up a coffee before sitting down.
+- An instance that has not written anything for more than 2 minutes counts as ended (crashed or aborted); otherwise a dead sub-agent would block its slot forever. Short pauses under 2 minutes still count as the same running agent.
+- A persona goes home after its last run has been finished for 30 minutes.
+
 ## Optional: Laya classifier
 
 Laya is **off by default**: agent-office sends no request to it unless you start with `--with-laya` or set `LAYA_URL` explicitly. Keyword rules always run first. Only agents they cannot place go to [Laya](https://pypi.org/project/laya/), a local zero-shot text classifier. Treat it as a hint: zero-shot accuracy is limited, and results below the confidence threshold fall back to `intern`.
@@ -123,14 +173,14 @@ The script needs `sh` and `curl`; `jq` is used if present but not required.
 - No telemetry, no analytics, no network calls to third parties. Nothing leaves your machine.
 - Laya is off unless you enable it (`--with-laya` or `LAYA_URL`). When enabled, sub-agent names and descriptions are sent to that Laya server, which normally runs locally.
 - `--with-laya` and `agent-office laya` run `uvx`, which on first use downloads the `laya` package and its dependencies from PyPI and the classifier model from Hugging Face. After that they run from the local cache. The model download uses plain HTTPS (`HF_HUB_DISABLE_XET=1` is set by default because the Xet CDN download tends to fail with `CAS Client Error`); set `HF_HUB_DISABLE_XET=0` to opt back in.
-- The app writes only a port file in `~/.config/agent-office/` and a role cache in `~/.cache/agent-office/`.
+- The app writes only a port file in `~/.config/agent-office/` and a role cache and a skill cache in `~/.cache/agent-office/`.
 
 ## Known limits
 
 - It relies on Claude Code internals (process list, transcript and sub-agent file layout) that can change between releases.
 - macOS and Linux only.
 - Without the plugin, heuristics may misjudge long-running tools (a quiet transcript looks like "finished").
-- Role detection is a best guess from names and descriptions.
+- Role detection is a best guess from names and descriptions, and so is the skill category.
 
 ## Development
 
