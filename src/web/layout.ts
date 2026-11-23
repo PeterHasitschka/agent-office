@@ -1,6 +1,6 @@
 // Pure building layout (logical pixels; the renderer applies zoom).
 // Floors are stacked bottom-up above the lobby: snapshot floors[0] is the lowest floor above the lobby.
-import type { Snapshot, Agent } from '../shared/types.js';
+import type { Snapshot, Agent, SkillCategory } from '../shared/types.js';
 import { SPRITE_W, SPRITE_H, HEADROOM, PROP_W } from './sprites.js';
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -8,8 +8,14 @@ export interface Rect { x: number; y: number; w: number; h: number }
  *  The desk prop occupies x+SPRITE_W .. x+SPRITE_W+PROP_W; the full slot spans y-HEADROOM .. y+SPRITE_H. */
 export interface DeskSlot { agentId: string; x: number; y: number }
 export interface RoomLayout { roomId: string; rect: Rect; label: string; desks: DeskSlot[]; lit: boolean }
-export interface FloorLayout { floorId: string; rect: Rect; label: string; rooms: RoomLayout[] }
+/** Machine at (x, y) top-left; spots are sprite-box positions (same convention as DeskSlot), agentId '' until assigned. */
+export interface MachineLayout { name: string; category: SkillCategory; x: number; y: number; spots: DeskSlot[] }
+export interface FloorLayout {
+  floorId: string; rect: Rect; label: string; rooms: RoomLayout[];
+  skillRoom?: { rect: Rect; machines: MachineLayout[] };
+}
 export interface BuildingLayout {
+  spotFor(agentId: string): { x: number; y: number } | null;
   width: number; height: number; floors: FloorLayout[];
   lobby: Rect; elevator: Rect; roof: Rect;
 }
@@ -26,6 +32,11 @@ export const ELEVATOR_W = 20;
 export const LOBBY_H = 40;
 export const ROOF_H = 8;
 export const FLOOR_LABEL_MAX = 18;
+export const MACHINE_W = 28;
+export const MACHINE_H = 22;
+const SPOT_COLS_PER_SIDE = 2;                      // standing columns on each side of a machine
+const SPOTS_PER_ROW = SPOT_COLS_PER_SIDE * 2;
+const MACHINE_PITCH = MACHINE_W + SPOTS_PER_ROW * SPRITE_W;
 
 export function truncateLabel(text: string, maxChars: number): string {
   if (maxChars <= 0) return '';
@@ -39,12 +50,42 @@ function leadFirst(agents: Agent[]): Agent[] {
 
 const rowsFor = (n: number) => Math.max(1, Math.ceil(n / MAX_COLS));
 
-export function layoutBuilding(s: Snapshot, opts: { minWidth?: number } = {}): BuildingLayout {
+export function layoutBuilding(s: Snapshot, opts: {
+  minWidth?: number;
+  machines?: Map<string, { name: string; category: SkillCategory }[]>;
+  /** first-seen order of agents (DisplayState.order()); decides who gets which standing spot. Default: snapshot order. */
+  agentOrder?: Map<string, number>;
+} = {}): BuildingLayout {
   // Pass 1: widths and heights (independent of absolute position).
   const widthOf = (n: number) => Math.max(ROOM_MIN_W, 8 + Math.min(n, MAX_COLS) * DESK_PITCH);
-  const floorW = s.floors.map(f => f.rooms.reduce((sum, r) => sum + widthOf(r.ended ? 0 : r.agents.length), 0));
-  const floorH = s.floors.map(f => {
-    const rows = Math.max(1, ...f.rooms.map(r => (r.ended ? 1 : rowsFor(r.agents.length))));
+  const machinesOf = (floorId: string) => opts.machines?.get(floorId) ?? [];
+  // Users per machine (by skill name), ordered by first-seen order; ties/unknown fall back to snapshot order.
+  const usersOf = s.floors.map(f => {
+    const byName = new Map<string, string[]>();
+    for (const r of f.rooms) {
+      if (r.ended) continue;
+      for (const a of r.agents) {
+        if (!a.activeSkill) continue;
+        const l = byName.get(a.activeSkill.name) ?? [];
+        l.push(a.id);
+        byName.set(a.activeSkill.name, l);
+      }
+    }
+    const ord = (id: string) => opts.agentOrder?.get(id) ?? Infinity;
+    for (const l of byName.values()) l.sort((x, y) => ord(x) - ord(y)); // stable: ties keep snapshot order
+    return byName;
+  });
+  const machineRows = (fi: number, name: string) =>
+    Math.max(1, Math.ceil((usersOf[fi].get(name)?.length ?? 0) / SPOTS_PER_ROW));
+  const skillRoomW = (fi: number) => {
+    const n = machinesOf(s.floors[fi].id).length;
+    return n === 0 ? 0 : Math.max(ROOM_MIN_W, 2 * ROOM_PAD + n * MACHINE_PITCH);
+  };
+  const floorW = s.floors.map((f, fi) =>
+    f.rooms.reduce((sum, r) => sum + widthOf(r.ended ? 0 : r.agents.length), 0) + skillRoomW(fi));
+  const floorH = s.floors.map((f, fi) => {
+    const skillRows = Math.max(1, ...machinesOf(f.id).map(m => machineRows(fi, m.name)));
+    const rows = Math.max(skillRows, ...f.rooms.map(r => (r.ended ? 1 : rowsFor(r.agents.length))));
     return BASE_FLOOR_H + (rows - 1) * ROW_H;
   });
   const contentW = Math.max(opts.minWidth ?? 0, ELEVATOR_W + ROOM_MIN_W, ELEVATOR_W + Math.max(0, ...floorW));
@@ -53,6 +94,7 @@ export function layoutBuilding(s: Snapshot, opts: { minWidth?: number } = {}): B
   const height = ROOF_H + totalFloorsH + LOBBY_H;
 
   // Pass 2: absolute positions; floors[0] lowest.
+  const spots = new Map<string, { x: number; y: number }>();
   let bottom = height - LOBBY_H; // y of the lobby top = bottom edge of lowest floor
   const floors = s.floors.map((f, fi) => {
     const h = floorH[fi];
@@ -78,14 +120,39 @@ export function layoutBuilding(s: Snapshot, opts: { minWidth?: number } = {}): B
         lit: !r.ended && agents.some(a => a.kind === 'lead'),
       };
     });
+    let skillRoom: FloorLayout['skillRoom'];
+    const ms = machinesOf(f.id);
+    if (ms.length) {
+      const rect: Rect = { x: rx, y, w: skillRoomW(fi), h: h - SLAB_H };
+      const machines: MachineLayout[] = ms.map((m, mi) => {
+        const mx = rect.x + ROOM_PAD + mi * MACHINE_PITCH + SPOT_COLS_PER_SIDE * SPRITE_W;
+        const rows = machineRows(fi, m.name);
+        const rowTop = (row: number) => y + FLOOR_MARGIN + row * ROW_H + HEADROOM;
+        const slots: DeskSlot[] = [];
+        for (let row = 0; row < rows; row++) {
+          // fill order per row: inner-left, inner-right, outer-left, outer-right
+          for (let c = 0; c < SPOT_COLS_PER_SIDE; c++) {
+            slots.push({ agentId: '', x: mx - (c + 1) * SPRITE_W, y: rowTop(row) });
+            slots.push({ agentId: '', x: mx + MACHINE_W + c * SPRITE_W, y: rowTop(row) });
+          }
+        }
+        (usersOf[fi].get(m.name) ?? []).forEach((id, i) => {
+          slots[i].agentId = id;
+          spots.set(id, { x: slots[i].x, y: slots[i].y });
+        });
+        return { name: m.name, category: m.category, x: mx, y: rowTop(0) + SPRITE_H - MACHINE_H, spots: slots };
+      });
+      skillRoom = { rect, machines };
+    }
     return {
       floorId: f.id, label: truncateLabel(f.label, FLOOR_LABEL_MAX),
-      rect: { x: ELEVATOR_W, y, w: width - ELEVATOR_W, h }, rooms,
+      rect: { x: ELEVATOR_W, y, w: width - ELEVATOR_W, h }, rooms, ...(skillRoom ? { skillRoom } : {}),
     };
   });
 
   return {
     width, height, floors,
+    spotFor: id => spots.get(id) ?? null,
     lobby: { x: 0, y: height - LOBBY_H, w: width, h: LOBBY_H },
     elevator: { x: 0, y: ROOF_H, w: ELEVATOR_W, h: height - ROOF_H },
     roof: { x: 0, y: 0, w: width, h: ROOF_H },

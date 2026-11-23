@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Room, Snapshot } from '../../src/shared/types.js';
 import {
-  layoutBuilding, truncateLabel, BASE_FLOOR_H, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W,
+  layoutBuilding, truncateLabel, BASE_FLOOR_H, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W, MACHINE_W, MACHINE_H,
 } from '../../src/web/layout.js';
 import { SPRITE_W, SPRITE_H, HEADROOM, PROP_W } from '../../src/web/sprites.js';
 
@@ -78,3 +78,84 @@ describe('truncateLabel', () => {
     expect(truncateLabel('abcdef', 4)).toBe('abc…');
   });
 });
+
+describe('layoutBuilding skills room', () => {
+  const withSkill = (a: Agent, name: string): Agent =>
+    ({ ...a, activeSkill: { name, category: 'review', since: 1 } });
+  const skillSnap = (skills: string[], extraRooms: Room[] = []): Snapshot => {
+    const agents = skills.map((s, i) => withSkill(ag(`u${i}`, i === 0 ? 'lead' : 'sub'), s));
+    return snap({ id: 'f', rooms: [{ id: 'r', label: 'r', cwd: '/x', agents }, ...extraRooms] });
+  };
+  const machinesFor = (names: string[]) =>
+    new Map([['f', [...new Set(names)].map(name => ({ name, category: 'review' as const }))]]);
+
+  it('has no skill room and unchanged geometry without machines', () => {
+    const s = skillSnap(['a', 'b']);
+    const plain = layoutBuilding(s);
+    expect(plain.floors[0].skillRoom).toBeUndefined();
+    expect(layoutBuilding(s, { machines: new Map() }).width).toBe(plain.width);
+    expect(plain.spotFor('u0')).toBeNull();
+  });
+
+  it('5 machines / 9 users: spots inside room, room right of other rooms, no overlap', () => {
+    const names = ['s0', 's1', 's2', 's3', 's4', 's0', 's1', 's2', 's0'];
+    const l = layoutBuilding(skillSnap(names), { machines: machinesFor(names) });
+    const f = l.floors[0];
+    const sr = f.skillRoom!;
+    const last = f.rooms[f.rooms.length - 1];
+    expect(sr.rect.x).toBeGreaterThanOrEqual(last.rect.x + last.rect.w);
+    expect(sr.machines).toHaveLength(5);
+    expect(sr.rect.x + sr.rect.w).toBeLessThanOrEqual(l.width);
+    expect(sr.rect.y + sr.rect.h).toBeLessThanOrEqual(f.rect.y + f.rect.h);
+    const boxes: Rect4[] = [];
+    for (const m of sr.machines) {
+      boxes.push({ x: m.x, y: m.y, w: MACHINE_W, h: MACHINE_H });
+      expect(m.spots.length).toBeGreaterThanOrEqual(4);
+      for (const p of m.spots) boxes.push({ x: p.x, y: p.y, w: SPRITE_W, h: SPRITE_H });
+    }
+    for (const b of boxes) {
+      expect(b.x).toBeGreaterThanOrEqual(sr.rect.x);
+      expect(b.x + b.w).toBeLessThanOrEqual(sr.rect.x + sr.rect.w);
+      expect(b.y).toBeGreaterThanOrEqual(sr.rect.y);
+      expect(b.y + b.h).toBeLessThanOrEqual(sr.rect.y + sr.rect.h);
+    }
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i], b = boxes[j];
+      const overlap = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+      expect(overlap).toBe(false);
+    }
+    const spots = names.map((_, i) => l.spotFor(`u${i}`));
+    for (const sp of spots) expect(sp).not.toBeNull();
+    expect(new Set(spots.map(sp => `${sp!.x},${sp!.y}`)).size).toBe(9);
+  });
+
+  it('many users on one machine grow the room downward within the floor', () => {
+    const names = Array.from({ length: 11 }, () => 'solo');
+    const l = layoutBuilding(skillSnap(names), { machines: machinesFor(names) });
+    const f = l.floors[0], sr = f.skillRoom!;
+    expect(f.rect.h).toBeGreaterThan(BASE_FLOOR_H);
+    for (const m of sr.machines) for (const p of m.spots) {
+      expect(p.y + SPRITE_H).toBeLessThanOrEqual(sr.rect.y + sr.rect.h);
+    }
+    for (let i = 0; i < 11; i++) expect(l.spotFor(`u${i}`)).not.toBeNull();
+  });
+
+  it('spot assignment follows first-seen order and is stable when a newcomer joins', () => {
+    const order = new Map([['u0', 0], ['u1', 1], ['u2', 2]]);
+    const m = machinesFor(['x']);
+    // spots relative to the skill room (the desk room before it widens with more agents)
+    const rel = (l: ReturnType<typeof layoutBuilding>, id: string) => {
+      const p = l.spotFor(id)!, r = l.floors[0].skillRoom!.rect;
+      return { x: p.x - r.x, y: p.y - r.y };
+    };
+    const before = layoutBuilding(skillSnap(['x', 'x']), { machines: m, agentOrder: order });
+    const after = layoutBuilding(skillSnap(['x', 'x', 'x']), { machines: m, agentOrder: order });
+    expect(rel(after, 'u0')).toEqual(rel(before, 'u0'));
+    expect(rel(after, 'u1')).toEqual(rel(before, 'u1'));
+    // older first-seen user takes the earlier spot even if listed later in the snapshot
+    const rev = new Map([['u0', 5], ['u1', 1]]);
+    const l = layoutBuilding(skillSnap(['x', 'x']), { machines: m, agentOrder: rev });
+    expect(rel(l, 'u1')).toEqual(rel(before, 'u0'));
+  });
+});
+interface Rect4 { x: number; y: number; w: number; h: number }

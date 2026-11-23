@@ -2,17 +2,20 @@
 import type { Snapshot } from '../shared/types.js';
 import { layoutBuilding, type BuildingLayout } from './layout.js';
 import { Scene } from './scene.js';
+import { DisplayState } from './display.js';
 import { startRenderer } from './render.js';
 
 const RECONNECT_MS = 2000;
 
 const scene = new Scene();
+const display = new DisplayState();
 let layout: BuildingLayout = layoutBuilding({ generatedAt: 0, floors: [] });
 const banner = document.getElementById('offline');
 
 function apply(s: Snapshot): void {
-  const next = layoutBuilding(s);
-  scene.update(s, next);
+  const shown = display.update(s, Date.now());
+  const next = layoutBuilding(shown, { machines: display.machines(), agentOrder: display.order() });
+  scene.update(shown, next);
   layout = next; // only after the scene accepted it, so both stay in sync
 }
 
