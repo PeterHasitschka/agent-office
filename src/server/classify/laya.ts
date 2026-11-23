@@ -30,14 +30,31 @@ export class LayaClient {
   }
 
   async classify(text: string, cfg: RoleConfig): Promise<{ role: RoleId; confidence: number } | null> {
+    const choices: Record<string, string> = {};
+    for (const [id, def] of Object.entries(cfg.roles)) choices[id] = def.laya;
+    const r = await this.ask(text, 'role', 'Which role best describes this agent?', choices);
+    return r && { role: r.choice as RoleId, confidence: r.confidence };
+  }
+
+  /** Generic single `choice` question; the answer is guaranteed to be one of `options`' own keys. */
+  async classifyChoice(
+    text: string,
+    options: Record<string, string>,
+    question = 'Which option best describes this?',
+  ): Promise<{ choice: string; confidence: number } | null> {
+    return this.ask(text, 'choice', question, options);
+  }
+
+  private async ask(
+    text: string,
+    key: string,
+    question: string,
+    choices: Record<string, string>,
+  ): Promise<{ choice: string; confidence: number } | null> {
     try {
-      const choices: Record<string, string> = {};
-      for (const [id, def] of Object.entries(cfg.roles)) choices[id] = def.laya;
       const body: Record<string, unknown> = {
         state: text,
-        questions: {
-          role: { type: 'choice', question: 'Which role best describes this agent?', choices },
-        },
+        questions: { [key]: { type: 'choice', question, choices } },
       };
       if (this.model) body.model = this.model;
       const res = await fetch(this.url + '/v1/systemone', {
@@ -48,11 +65,11 @@ export class LayaClient {
       });
       if (!res.ok) return null;
       const j: any = JSON.parse(await res.text());
-      const a = j?.answers?.role;
+      const a = j?.answers?.[key];
       const label = a?.choice;
       const confidence = Number(a?.confidence);
       if (typeof label !== 'string' || !Object.hasOwn(choices, label) || !Number.isFinite(confidence)) return null;
-      return { role: label as RoleId, confidence };
+      return { choice: label, confidence };
     } catch {
       return null;
     }

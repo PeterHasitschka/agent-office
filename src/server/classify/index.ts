@@ -1,130 +1,62 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { RoleId } from '../../shared/types.js';
 import type { RoleSource } from '../snapshot.js';
 import type { LayaClient } from './laya.js';
+import { CachedClassifierQueue } from './queue.js';
 import { classifyByRules, type RoleConfig } from './rules.js';
 
 export const DEFAULT_CACHE_PATH = join(homedir(), '.cache', 'agent-office', 'roles.json');
-const MAX_CONCURRENT = 2;
-const WRITE_DEBOUNCE_MS = 500;
-const MAX_ENTRIES = 500;
-const ERROR_RETRY_MS = 60_000;
-
-function capSet<V>(m: Map<string, V>, k: string, v: V): void {
-  m.delete(k);
-  m.set(k, v);
-  while (m.size > MAX_ENTRIES) m.delete(m.keys().next().value as string);
-}
 
 export class RoleClassifier implements RoleSource {
-  private cache = new Map<string, RoleId>();
-  /** key -> earliest time (ms) a retry is allowed; Infinity = never (low confidence is deterministic) */
-  private retryAt = new Map<string, number>();
-  private queued = new Set<string>();
-  private queue: { key: string; text: string }[] = [];
-  private active = 0;
-  private waiters: (() => void)[] = [];
-  private timer: NodeJS.Timeout | null = null;
-  private dirty = false;
+  private q: CachedClassifierQueue<RoleId>;
 
   constructor(
     private cfg: RoleConfig,
-    private laya: LayaClient | null,
-    private cachePath: string = DEFAULT_CACHE_PATH,
-    private threshold = 0.5,
-    private now: () => number = Date.now,
+    laya: LayaClient | null,
+    cachePath: string = DEFAULT_CACHE_PATH,
+    threshold = 0.5,
+    now: () => number = Date.now,
   ) {
-    try {
-      const j = JSON.parse(readFileSync(cachePath, 'utf8'));
-      if (j && typeof j === 'object') {
-        for (const [k, v] of Object.entries<any>(j)) if (typeof v === 'string' && Object.hasOwn(cfg.roles, v)) capSet(this.cache, k, v as RoleId);
-      }
-    } catch {
-      /* no or broken cache */
-    }
+    this.q = new CachedClassifierQueue<RoleId>({
+      ask: laya
+        ? async (text) => {
+            const r = await laya.classify(text, cfg);
+            return r && { value: r.role, confidence: r.confidence };
+          }
+        : null,
+      cachePath,
+      threshold,
+      now,
+      decode: (j) => {
+        const out: [string, RoleId][] = [];
+        if (j && typeof j === 'object') {
+          for (const [k, v] of Object.entries(j as Record<string, unknown>)) {
+            if (typeof v === 'string' && Object.hasOwn(cfg.roles, v)) out.push([k, v as RoleId]);
+          }
+        }
+        return out;
+      },
+    });
   }
 
   roleFor(agentType: string, description: string): RoleId {
     const byRule = classifyByRules(this.cfg, agentType, description);
     if (byRule) return byRule;
     const key = `${agentType}\u0000${description}`;
-    const hit = this.cache.get(key);
+    const hit = this.q.get(key);
     if (hit) return hit;
-    const when = this.retryAt.get(key);
-    if (this.laya && !this.queued.has(key) && (when === undefined || this.now() >= when)) {
-      this.queued.add(key);
-      this.queue.push({ key, text: `Agent type: ${agentType}\nTask: ${description}` });
-      this.pump();
-    }
+    this.q.request(key, `Agent type: ${agentType}\nTask: ${description}`);
     return 'intern';
-  }
-
-  private pump(): void {
-    while (this.active < MAX_CONCURRENT && this.queue.length) {
-      const job = this.queue.shift()!;
-      this.active++;
-      void this.run(job).finally(() => {
-        this.active--;
-        this.pump();
-        this.notifyIdle();
-      });
-    }
-  }
-
-  private async run(job: { key: string; text: string }): Promise<void> {
-    try {
-      const r = await this.laya!.classify(job.text, this.cfg);
-      if (!r) capSet(this.retryAt, job.key, this.now() + ERROR_RETRY_MS);
-      else if (r.confidence >= this.threshold) {
-        capSet(this.cache, job.key, r.role);
-        this.scheduleWrite();
-      } else capSet(this.retryAt, job.key, Infinity);
-    } catch {
-      capSet(this.retryAt, job.key, this.now() + ERROR_RETRY_MS);
-    } finally {
-      this.queued.delete(job.key);
-    }
-  }
-
-  private notifyIdle(): void {
-    if (this.active === 0 && this.queue.length === 0) {
-      const w = this.waiters;
-      this.waiters = [];
-      for (const f of w) f();
-    }
   }
 
   /** Resolves when no classification is running or queued. */
   idle(): Promise<void> {
-    if (this.active === 0 && this.queue.length === 0) return Promise.resolve();
-    return new Promise((r) => this.waiters.push(r));
-  }
-
-  private scheduleWrite(): void {
-    this.dirty = true;
-    if (this.timer) return;
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      void this.flush();
-    }, WRITE_DEBOUNCE_MS);
-    this.timer.unref?.();
+    return this.q.idle();
   }
 
   /** Write the cache now (also used by the debounce timer). */
   async flush(): Promise<void> {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (!this.dirty) return;
-    this.dirty = false;
-    try {
-      mkdirSync(dirname(this.cachePath), { recursive: true });
-      writeFileSync(this.cachePath, JSON.stringify(Object.fromEntries(this.cache), null, 2));
-    } catch {
-      /* cache is optional */
-    }
+    return this.q.flush();
   }
 }

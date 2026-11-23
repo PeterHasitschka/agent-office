@@ -68,16 +68,48 @@ function compile(keywords: string[]): RegExp | null {
   }
 }
 
-function firstMatch(cfg: RoleConfig, text: string): RoleId | null {
+interface CompiledRule<K extends string> {
+  id: K;
+  keywords: string[];
+  /** compiled regex per minimum keyword length (0 = all keywords) */
+  byMinLen: Map<number, RegExp | null>;
+}
+/** Ordered keyword rules; first matching entry (in definition order) wins. */
+export interface CompiledRules<K extends string> {
+  rules: CompiledRule<K>[];
+}
+
+export function compileKeywordRules<K extends string>(defs: Record<K, { keywords: string[] }>): CompiledRules<K> {
+  const rules: CompiledRule<K>[] = [];
+  for (const [id, def] of Object.entries<{ keywords: string[] }>(defs)) {
+    const keywords = Array.isArray(def?.keywords) ? def.keywords : [];
+    rules.push({ id: id as K, keywords, byMinLen: new Map([[0, compile(keywords)]]) });
+  }
+  return { rules };
+}
+
+function regexFor<K extends string>(r: CompiledRule<K>, minLen: number): RegExp | null {
+  let re = r.byMinLen.get(minLen);
+  if (re === undefined) {
+    re = compile(r.keywords.filter((k) => k.trim().length >= minLen));
+    r.byMinLen.set(minLen, re);
+  }
+  return re;
+}
+
+/** First rule whose keywords match at a word start of `text` (camelCase split, case-insensitive). */
+export function firstMatch<K extends string>(rules: CompiledRules<K>, text: string, opts?: { minKeywordLen?: number }): K | null {
   if (!text) return null;
   const t = normalize(text);
-  for (const [id, def] of Object.entries(cfg.roles)) {
-    const re = compile(def.keywords);
-    if (re && re.test(t)) return id as RoleId;
+  const minLen = opts?.minKeywordLen ?? 0;
+  for (const r of rules.rules) {
+    const re = regexFor(r, minLen);
+    if (re && re.test(t)) return r.id;
   }
   return null;
 }
 
 export function classifyByRules(cfg: RoleConfig, agentType: string, description: string): RoleId | null {
-  return firstMatch(cfg, agentType) ?? firstMatch(cfg, description);
+  const rules = compileKeywordRules<RoleId>(cfg.roles as Record<RoleId, RoleDef>);
+  return firstMatch(rules, agentType) ?? firstMatch(rules, description);
 }

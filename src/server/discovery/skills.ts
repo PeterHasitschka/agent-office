@@ -71,7 +71,7 @@ export function parseSkillListing(entries: unknown[]): Map<string, string> {
   return out;
 }
 
-function defaultsPath(): string {
+export function skillDefaultsPath(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   for (const rel of ['../../../roles/skills.json', '../roles/skills.json', './roles/skills.json']) {
     const p = join(here, rel);
@@ -93,5 +93,5 @@ function readIgnore(p: string, strict: boolean): string[] {
 
 /** Built-in command blocklist from roles/skills.json plus the user override's `ignoreCommands`. */
 export function loadIgnoreCommands(userOverridePath: string = SKILL_OVERRIDE_PATH): Set<string> {
-  return new Set([...readIgnore(defaultsPath(), true), ...readIgnore(userOverridePath, false)]);
+  return new Set([...readIgnore(skillDefaultsPath(), true), ...readIgnore(userOverridePath, false)]);
 }
