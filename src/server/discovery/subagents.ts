@@ -15,8 +15,17 @@ export interface SubagentInfo {
   finishedAt?: number;
 }
 
-/** sessionDir = projects/<slug>/<sessionId>. Reads agent-<id>.meta.json + agent-<id>.jsonl. */
-export async function listSubagents(sessionDir: string, now: number): Promise<SubagentInfo[]> {
+export interface SubagentInstance {
+  id: string;
+  agentType: string;
+  description: string;
+  startedAt: number;
+  lastWriteAt: number;
+  finished: boolean;
+}
+
+/** Reads every parsable agent-<id>.meta.json (+ jsonl stats) in sessionDir/subagents. No time filtering. */
+async function readInstances(sessionDir: string): Promise<SubagentInstance[]> {
   const dir = join(sessionDir, 'subagents');
   let names: string[];
   try {
@@ -24,7 +33,7 @@ export async function listSubagents(sessionDir: string, now: number): Promise<Su
   } catch {
     return [];
   }
-  const out: SubagentInfo[] = [];
+  const out: SubagentInstance[] = [];
   for (const name of names) {
     const m = /^agent-(.+)\.meta\.json$/.exec(name);
     if (!m) continue;
@@ -38,18 +47,38 @@ export async function listSubagents(sessionDir: string, now: number): Promise<Su
       continue;
     }
     if (!meta || typeof meta !== 'object' || Array.isArray(meta)) continue;
-    let mtimeMs = metaStat.mtimeMs;
+    let lastWriteAt = metaStat.mtimeMs;
     let startedAt = metaStat.birthtimeMs || metaStat.mtimeMs;
     try {
       const s = await stat(join(dir, `agent-${id}.jsonl`));
-      mtimeMs = s.mtimeMs;
+      lastWriteAt = s.mtimeMs;
       startedAt = s.birthtimeMs || s.mtimeMs;
     } catch {
       // jsonl missing: fall back to meta.json times
     }
-    const agentType = typeof meta.agentType === 'string' ? meta.agentType : 'unknown';
-    const description = typeof meta.description === 'string' ? meta.description : '';
-    if (meta.finished === true) {
+    out.push({
+      id,
+      agentType: typeof meta.agentType === 'string' ? meta.agentType : 'unknown',
+      description: typeof meta.description === 'string' ? meta.description : '',
+      startedAt,
+      lastWriteAt,
+      finished: meta.finished === true,
+    });
+  }
+  return out;
+}
+
+/** All sub-agent instances of a session (sessionDir = projects/<slug>/<sessionId>), unfiltered. */
+export function listSubagentInstances(sessionDir: string): Promise<SubagentInstance[]> {
+  return readInstances(sessionDir);
+}
+
+/** Legacy per-instance view (30-min window); used by snapshot.ts until personas are wired in. */
+export async function listSubagents(sessionDir: string, now: number): Promise<SubagentInfo[]> {
+  const out: SubagentInfo[] = [];
+  for (const i of await readInstances(sessionDir)) {
+    const { id, agentType, description, startedAt, lastWriteAt: mtimeMs } = i;
+    if (i.finished) {
       if (now - mtimeMs >= KEEP_FINISHED_MS) continue;
       out.push({ id, agentType, description, status: 'done', startedAt, lastActivityAt: mtimeMs, finishedAt: mtimeMs });
     } else {
