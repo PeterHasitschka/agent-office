@@ -3,7 +3,7 @@
 import type { BuildingLayout, FloorLayout, RoomLayout } from './layout.js';
 import { ELEVATOR_W, LOBBY_H, ROOF_H, SLAB_H, truncateLabel } from './layout.js';
 import type { Actor } from './scene.js';
-import { DESK_TOP, PROP_W, SPRITE_H, SPRITE_W, drawDeskProp } from './sprites.js';
+import { DESK_TOP, PROP_W, SPRITE_H, SPRITE_W, drawDeskProp, drawEmptyChair } from './sprites.js';
 import { drawText, textWidth } from './font.js';
 import type { Sky } from './render-sky.js';
 
@@ -110,7 +110,8 @@ export function drawFloorBase(ctx: Ctx, l: BuildingLayout, f: FloorLayout, env: 
   const { x, y, w, h } = f.rect;
   rect(ctx, x, y, w, h - SLAB_H, '#d9cfbd');
   rect(ctx, x, y + h - SLAB_H - 4, w, 4, '#b9ab94');
-  const used = f.rooms.reduce((e, r) => Math.max(e, r.rect.x + r.rect.w), x);
+  const sr = f.skillRoom?.rect;
+  const used = f.rooms.reduce((e, r) => Math.max(e, r.rect.x + r.rect.w), sr ? sr.x + sr.w : x);
   for (let wx = used + 8; wx + 14 <= x + w - 4; wx += 30) drawWindow(ctx, wx, y + 7, 14, 14, env);
   if (x + w - used >= 22) drawWaterCooler(ctx, x + w - 12, y + h - SLAB_H - 4, env);
   // slab
@@ -206,8 +207,10 @@ export function drawDesks(ctx: Ctx, r: RoomLayout, actors: Map<string, Actor>, f
     rect(ctx, dx + PROP_W / 2 - 1, dy + 6, 2, 1, '#d8b070');
     rect(ctx, dx, dy, PROP_W, 2, '#9a6438'); rect(ctx, dx, dy + 2, PROP_W, 1, '#6b4224');
     const a = actors.get(d.agentId);
-    if (a && (a.phase === 'seated' || a.phase === 'changing')) { // props stay put while the owner shuffles over
-      drawDeskProp(ctx, dx, d.y, a.shownRole, a.pose === 'walk' ? 'idle' : a.pose, frame + (hash(a.agent.id) & 3));
+    if (a && (a.phase === 'seated' || a.phase === 'changing' || a.phase === 'waking')) { // props stay put while the owner shuffles over
+      const away = a.atMachine || Math.round(a.x) !== d.x || Math.round(a.y) !== d.y;
+      if (away) drawEmptyChair(ctx, d.x, d.y); // owner at a skill machine (or on the way): chair pushed back
+      drawDeskProp(ctx, dx, d.y, a.shownRole, away || a.pose === 'walk' ? 'idle' : a.pose, frame + (hash(a.agent.id) & 3));
     }
   }
 }

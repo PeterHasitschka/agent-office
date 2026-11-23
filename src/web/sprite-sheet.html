@@ -8,6 +8,7 @@
   h1 { font-size: 14px; margin: 0 0 4px; }
   p { margin: 0 0 12px; }
   #grid { display: grid; grid-template-columns: 90px repeat(5, 136px); gap: 6px 8px; align-items: center; }
+  #machines { display: grid; gap: 6px 8px; align-items: center; }
   .hd { font-weight: bold; text-align: center; }
   .role { font-weight: bold; text-align: right; padding-right: 6px; }
   canvas { image-rendering: pixelated; display: block; border-radius: 2px; }
@@ -15,8 +16,10 @@
 </head>
 <body>
 <h1>agent-office sprite sheet (dev only)</h1>
-<p>All roles × poses at 4× zoom, animated at ~6 fps. <code>?f=0..3</code> freezes a frame, <code>?z=8</code> zoom, <code>?roles=a,b</code> filter.</p>
+<p>All roles × poses (+ skill machines idle / in use) at 4× zoom, animated at ~6 fps. <code>?f=0..3</code> freezes a frame, <code>?z=8</code> zoom, <code>?roles=a,b</code> filter.</p>
 <div id="grid"></div>
+<h1 style="margin-top:16px">skill machines</h1>
+<div id="machines" class="grid2"></div>
 <script src="sprite-sheet.js"></script>
 </body>
 </html>

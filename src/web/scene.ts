@@ -9,7 +9,7 @@ export type ActorPhase =
 
 export interface Actor {
   agent: Agent; x: number; y: number; phase: ActorPhase; pose: Pose; shownRole: RoleId; phaseT: number;
-  /** True while standing at a skill machine (target is a spot and reached). */
+  /** True while standing at a skill machine spot (seated/waking/changing there; walking makes it false). */
   atMachine: boolean;
 }
 
@@ -177,9 +177,7 @@ export class Scene {
         if (a.phaseT >= WAKE_MS) this.setPhase(a, 'seated');
         return 0;
       }
-      case 'changing': {
-        const t = this.target(id);
-        if (t) { a.x = t.x; a.y = t.y; }
+      case 'changing': { // costume change in place; seated resumes any walk afterwards
         a.phaseT += dtMs;
         if (a.phaseT >= CHANGE_MS) { a.shownRole = a.agent.role; this.setPhase(a, 'seated'); }
         return 0;
@@ -206,7 +204,8 @@ export class Scene {
 
   private updatePose(a: Actor): void {
     const t = this.target(a.agent.id);
-    a.atMachine = a.phase === 'seated' && !!t && t.spot && a.x === t.x && a.y === t.y;
+    const standing = a.phase === 'seated' || a.phase === 'waking' || a.phase === 'changing';
+    a.atMachine = standing && !!t && t.spot && a.x === t.x && a.y === t.y;
     switch (a.phase) {
       case 'seated': a.pose = t && (a.x !== t.x || a.y !== t.y) ? 'walk' : STATUS_POSE[a.agent.status]; break;
       case 'waking': a.pose = 'waking'; break;

@@ -2,13 +2,15 @@
 import type { BuildingLayout } from './layout.js';
 import { LOBBY_H, ROOF_H } from './layout.js';
 import type { Actor, Scene } from './scene.js';
-import { changeProgress } from './scene.js';
+import { changeProgress, WAKE_MS } from './scene.js';
 import { drawChibi, HEADROOM, SPRITE_H, SPRITE_W } from './sprites.js';
 import { drawSky, skyAt, type Sky } from './render-sky.js';
 import {
   drawCarBack, drawCarFront, drawDesks, drawFacade, drawFloorBase, drawFloorSign, drawGround, drawLobby,
   drawRoof, drawRoom, drawRoomShade, drawRoomSign, hash, marginsFor, type Env, type Margins,
 } from './render-building.js';
+import { drawSkillMachines, drawSkillRoom, machineKey } from './render-skills.js';
+import { MACHINE_H, MACHINE_W } from './layout.js';
 import { hitTest, TooltipView } from './tooltip.js';
 
 const FRAME_MS = 140;
@@ -22,6 +24,7 @@ function clock(): Date {
 }
 const RIDING = new Set(['riding-up', 'riding-down']);
 const DOOR_OPEN_PER_S = 7, DOOR_CLOSE_PER_S = 3.5;
+const MACHINE_PUFF_MS = 600;
 
 export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layout: BuildingLayout; scene: Scene }): void {
   const ctx = canvas.getContext('2d')!;
@@ -36,6 +39,10 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
   let mouse: { x: number; y: number } | null = null;
   let sky: Sky = skyAt(clock()), skyAtMs = -Infinity;
   let doorOpen = 0;
+  // build/teardown puffs: machines (floorId+name → centre) seen last frame; primed once real floors arrived
+  let seenMachines = new Map<string, { cx: number; cy: number }>();
+  let machinesPrimed = false;
+  const machinePuffs: { cx: number; cy: number; start: number }[] = [];
 
   canvas.addEventListener('mousemove', e => { mouse = { x: e.clientX, y: e.clientY }; });
   canvas.addEventListener('mouseleave', () => { mouse = null; tip?.hide(); canvas.style.cursor = ''; });
@@ -90,7 +97,10 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
       for (const r of f.rooms) drawRoom(ctx, r, env);
       for (const r of f.rooms) drawDesks(ctx, r, byId, frame);
       for (const r of f.rooms) { drawRoomShade(ctx, r, env); drawRoomSign(ctx, r); }
+      drawSkillRoom(ctx, f, env);
+      drawSkillMachines(ctx, f, byId, frame, env);
     });
+    trackMachines(l, now);
 
     const riders = actors.filter(a => RIDING.has(a.phase));
     if (riders.length === 0) drawCarBack(ctx, l.lobby.y + LOBBY_H - SPRITE_H - 2);
@@ -99,8 +109,16 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
     const hovered = mouse ? pick(l, actors, mouse) : null;
     const sorted = [...actors].sort((a, b) => a.y - b.y || a.x - b.x);
     for (const a of sorted) {
-      drawChibi(ctx, a.x, a.y, a.shownRole, a.pose, frame + (hash(a.agent.id) & 3));
-      if (a.phase === 'changing') drawPuff(ctx, a, changeProgress(a));
+      // waking plays its 4 frames in order over WAKE_MS (stretch, stretch, sip, refreshed)
+      const fr = a.phase === 'waking' ? Math.min(3, Math.floor(a.phaseT / (WAKE_MS / 4))) : frame + (hash(a.agent.id) & 3);
+      drawChibi(ctx, a.x, a.y, a.shownRole, a.pose, fr);
+      if (a.phase === 'changing') drawPuff(ctx, Math.round(a.x) + SPRITE_W / 2, Math.round(a.y) + SPRITE_H / 2 + 1, changeProgress(a));
+    }
+    for (let i = machinePuffs.length - 1; i >= 0; i--) {
+      const mp = machinePuffs[i];
+      const p = (now - mp.start) / MACHINE_PUFF_MS;
+      if (p >= 1) machinePuffs.splice(i, 1);
+      else drawPuff(ctx, mp.cx, mp.cy, Math.max(0, p));
     }
     if (riders.length === 0) drawCarFront(ctx, l.lobby.y + LOBBY_H - SPRITE_H - 2);
     for (const a of riders) drawCarFront(ctx, a.y);
@@ -112,6 +130,19 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
       tip?.show(hovered.agent, Date.now(), { left, top, right: left + SPRITE_W * zoom, bottom: top + (SPRITE_H + HEADROOM) * zoom });
       canvas.style.cursor = 'pointer';
     } else if (mouse) { tip?.hide(); canvas.style.cursor = ''; }
+  }
+
+  function trackMachines(l: BuildingLayout, now: number): void {
+    const cur = new Map<string, { cx: number; cy: number }>();
+    for (const f of l.floors) for (const mc of f.skillRoom?.machines ?? []) {
+      cur.set(machineKey(f.floorId, mc), { cx: mc.x + MACHINE_W / 2, cy: mc.y + MACHINE_H / 2 });
+    }
+    if (machinesPrimed) {
+      for (const [k, c] of cur) if (!seenMachines.has(k)) machinePuffs.push({ ...c, start: now });
+      for (const [k, c] of seenMachines) if (!cur.has(k)) machinePuffs.push({ ...c, start: now });
+    }
+    if (l.floors.length > 0) machinesPrimed = true;
+    seenMachines = cur;
   }
 
   function pick(l: BuildingLayout, actors: Actor[], p: { x: number; y: number }): Actor | null {
@@ -135,9 +166,9 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
   requestAnimationFrame(loop);
 }
 
-/** Costume-change smoke puff: a solid cloud hides the figure, blooms outwards, then fades; sparkles circle it. */
-function drawPuff(ctx: CanvasRenderingContext2D, a: Actor, p: number): void {
-  const cx = Math.round(a.x) + SPRITE_W / 2, cy = Math.round(a.y) + SPRITE_H / 2 + 1;
+/** Smoke puff centred on (cx, cy): a solid cloud hides what is behind, blooms outwards, then fades; sparkles circle it.
+ *  Used for costume changes and for machines being built / torn down. */
+function drawPuff(ctx: CanvasRenderingContext2D, cx: number, cy: number, p: number): void {
   const r = 4 + Math.round(7 * Math.sin((p * Math.PI) / 2));
   ctx.globalAlpha = p < 0.6 ? 1 : Math.max(0, (1 - p) / 0.4);
   const blobs: [number, number, number][] = [

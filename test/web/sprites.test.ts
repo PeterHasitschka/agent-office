@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { RoleId } from '../../src/shared/types.js';
 import {
-  ALL_ROLES, QUESTION_COLOR, ZZ_COLORS, drawChibi, drawDeskProp, ROLE_PALETTE, FRAMES_PER_POSE, SPRITE_W, SPRITE_H, PROP_W, HEADROOM,
+  ALL_ROLES, QUESTION_COLOR, WAKE_CUP, drawEmptyChair, ZZ_COLORS, drawChibi, drawDeskProp, ROLE_PALETTE, FRAMES_PER_POSE, SPRITE_W, SPRITE_H, PROP_W, HEADROOM,
   type Pose,
 } from '../../src/web/sprites.js';
 
@@ -19,7 +19,7 @@ function fakeCtx(): { ctx: CanvasRenderingContext2D; calls: Call[] } {
 }
 
 const ROLES: readonly RoleId[] = ALL_ROLES;
-const POSES: Pose[] = ['work', 'idle', 'sleep', 'walk', 'wave'];
+const POSES: Pose[] = ['work', 'idle', 'sleep', 'walk', 'wave', 'waking'];
 const X = 100, Y = 50;
 
 function chibi(role: RoleId, pose: Pose, frame: number): Call[] {
@@ -84,6 +84,27 @@ describe('drawChibi', () => {
   it('sleep differs from work for every role', () => {
     for (const role of ROLES) {
       expect(key(chibi(role, 'sleep', 0)), role).not.toBe(key(chibi(role, 'work', 0)));
+    }
+  });
+
+  it('waking differs from work and sleep for every role, and its 4 frames are distinct', () => {
+    for (const role of ROLES) for (let f = 0; f < FRAMES_PER_POSE; f++) {
+      expect(key(chibi(role, 'waking', f)), `${role}/${f}`).not.toBe(key(chibi(role, 'work', f)));
+      expect(key(chibi(role, 'waking', f)), `${role}/${f}`).not.toBe(key(chibi(role, 'sleep', f)));
+      expect(key(chibi(role, 'waking', f)), `${role}/${f}`).not.toBe(key(chibi(role, 'idle', f)));
+    }
+    for (const role of ROLES) expect(new Set([0, 1, 2, 3].map(f => key(chibi(role, 'waking', f)))).size, role).toBe(4);
+  });
+
+  it('waking stretches both arms up (frames 0-1) and sips from a cup (frames 2-3)', () => {
+    for (const role of ROLES) {
+      for (const f of [0, 1]) {
+        const calls = chibi(role, 'waking', f);
+        // skin-coloured hands above the head-top row on both sides
+        expect(calls.some(c => c.c === '#f7cfa6' && c.y < Y + 7 && c.x < X + 4), `${role}/${f} left`).toBe(true);
+        expect(calls.some(c => c.c === '#f7cfa6' && c.y < Y + 7 && c.x >= X + 12), `${role}/${f} right`).toBe(true);
+      }
+      for (const f of [2, 3]) expect(chibi(role, 'waking', f).some(c => c.c === WAKE_CUP), `${role}/${f}`).toBe(true);
     }
   });
 
@@ -154,6 +175,13 @@ describe('drawDeskProp', () => {
     for (const role of ROLES) {
       expect(key(prop(role, 'sleep', 0)), role).not.toBe(key(prop(role, 'work', 0)));
     }
+  });
+
+  it('empty pushed-back chair stays inside the character cell', () => {
+    const { ctx, calls } = fakeCtx();
+    drawEmptyChair(ctx, X, Y);
+    expect(calls.length).toBeGreaterThanOrEqual(4);
+    expectInBox(calls, X, X + SPRITE_W, Y, Y + SPRITE_H, 'chair');
   });
 
   it('unknown role string falls back to the intern look (chibi + prop)', () => {

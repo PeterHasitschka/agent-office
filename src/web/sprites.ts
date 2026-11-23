@@ -27,6 +27,8 @@ export const ALL_ROLES: readonly RoleId[] = [
 ];
 export const QUESTION_COLOR = '#e0533b';
 export const ZZ_COLORS: readonly string[] = [C.zz, shade(C.zz, 0.85)];
+/** Body colour of the coffee cup in the 'waking' pose. */
+export const WAKE_CUP = '#fdf7ee';
 
 const O = C.outline;
 const wrap = (f: number) => (Number.isFinite(f) ? ((Math.trunc(f) % FRAMES_PER_POSE) + FRAMES_PER_POSE) % FRAMES_PER_POSE : 0);
@@ -80,6 +82,12 @@ function armR(p: Px, a: ArmPose, sleeve: string): Pt {
   }
 }
 
+/** Left arm stretched up (mirror of armR 'up'). */
+function armLUp(p: Px, wx: number, sleeve: string): void {
+  p(1, 8, 3, 5, O); p(1 - wx, 4, 3, 5, O);
+  p(2, 8, 1, 4, sleeve); p(2 - wx, 7, 1, 1, sleeve); p(2 - wx, 5, 1, 2, C.skin);
+}
+
 function armL(p: Px, dy: number, sleeve: string): Pt {
   p(2, 12, 3, 5 + dy, O); p(3, 12, 1, 3 + dy, sleeve); p(3, 15 + dy, 1, 1, C.skin);
   return { x: 3, y: 15 + dy };
@@ -91,7 +99,7 @@ function head(p: Px, s: S, role: RoleId, lx: number, talking: boolean): void {
   p(4, 4, 8, 7, C.skin);
   p(11, 6, 1, 4, C.skinShade); p(5, 10, 6, 1, C.skinShade);
   look.hair(p, s);
-  const closed = s.pose === 'sleep' || (s.pose === 'idle' && s.f === 3);
+  const closed = s.pose === 'sleep' || (s.pose === 'idle' && s.f === 3) || (s.pose === 'waking' && s.f !== 3);
   if (closed) {
     p(5, 8, 2, 1, C.eye); p(9, 8, 2, 1, C.eye);
   } else {
@@ -133,6 +141,18 @@ function armsBehindHead(p: Px, sleeve: string): void {
   p(13, 5, 1, 3, sleeve); p(12, 8, 1, 2, sleeve); p(11, 10, 1, 2, sleeve);
 }
 
+/** Waking: frames 0–1 stretch (cup hidden), 2 sip at the mouth, 3 refreshed – cup at the chest, steam + sparkle. */
+function coffee(p: Px, f: number, r: Pt): void {
+  if (f < 2) { p(6, -3 + f, 1, 1, '#c9c0aa'); p(9, -4 + f, 1, 1, '#c9c0aa'); return; } // yawn puffs
+  const cx = f === 2 ? 8 : r.x - 2, cy = f === 2 ? 9 : r.y - 2;
+  p(cx, cy, 4, 4, O); p(cx + 1, cy + 1, 2, 3, WAKE_CUP); p(cx + 1, cy + 2, 2, 1, C.red);
+  if (f === 3) {
+    p(cx + 1, cy + 1, 2, 1, '#6b3e1e');
+    p(cx + 1, cy - 2, 1, 1, '#b9ada0'); p(cx + 2, cy - 3, 1, 1, '#b9ada0');
+    p(2, -4, 1, 3, C.yellow); p(1, -3, 3, 1, C.yellow); // sparkle: wide awake
+  }
+}
+
 function questionBubble(p: Px, f: number): void {
   const b = f === 1 || f === 2 ? 1 : 0;
   p(10, -8 + b, 5, 7, O); p(9, -7 + b, 7, 5, O);
@@ -156,23 +176,23 @@ export function knownRole(role: string): RoleId {
 
 export function drawChibi(ctx: CanvasRenderingContext2D, x: number, y: number, role: RoleId, pose: Pose, frame: number): void {
   role = knownRole(role);
-  if (pose === 'waking') pose = 'idle'; // TEMPORARY until Task 8 draws the real waking pose
   const f = wrap(frame);
   const s: S = { pose, f };
   const look = ROLE_LOOKS[role];
   const pal = ROLE_PALETTE[role];
   const sleeve = look.sleeve ?? pal.shirt;
-  const bob = pose === 'walk' && (f === 1 || f === 3) ? -1 : 0;
+  const bob = (pose === 'walk' && (f === 1 || f === 3)) || (pose === 'waking' && f === 1) ? -1 : 0; // waking f1: tiptoe stretch
   const p = shift(makePen(ctx, x, y), 0, bob);
 
   const hd = pose === 'sleep' ? (look.sleepHeadDown ?? 1) : 0;
   const lx = pose === 'work' || (pose === 'idle' && f === 2) ? 1 : 0;
-  const talking = pose === 'work' && (look.talksAtWork?.(f) ?? false);
+  const talking = (pose === 'work' && (look.talksAtWork?.(f) ?? false)) || (pose === 'waking' && f < 2); // yawn
 
   let right: ArmPose = { kind: 'down' };
   let leftDy = 0;
   if (pose === 'work') right = look.workArm?.(f) ?? { kind: 'fwd', dy: f % 2 };
   else if (pose === 'wave') right = { kind: 'up', wx: f % 2 };
+  else if (pose === 'waking') right = f < 2 ? { kind: 'up', wx: f } : f === 2 ? { kind: 'ear' } : { kind: 'fwd', dy: 0 };
   else if (pose === 'walk') { right = { kind: 'down', dy: f === 0 ? -1 : 0 }; leftDy = f === 2 ? -1 : 0; }
   else if (pose === 'sleep') {
     if (look.sleepArms === 'cross') right = { kind: 'cross' };
@@ -198,11 +218,14 @@ export function drawChibi(ctx: CanvasRenderingContext2D, x: number, y: number, r
   let l = { x: 3, y: 15 };
   let r: Pt = { x: 12, y: 15 };
   const ownArms = mod.arms !== 'behindHead';
-  if (ownArms && right.kind !== 'cross') l = armL(pb, leftDy, sleeve);
+  const stretch = pose === 'waking' && f < 2;
+  if (ownArms && right.kind !== 'cross' && !stretch) l = armL(pb, leftDy, sleeve);
   if (ownArms && !late) r = armR(pb, right, sleeve);
   head(ph, s, role, lx, talking);
   if (ownArms && late) r = armR(pb, right, sleeve);
-  if (ownArms) look.held?.(pb, s, r, l);
+  if (stretch) armLUp(pb, f, sleeve);
+  if (pose === 'waking') coffee(pb, f, r);
+  else if (ownArms) look.held?.(pb, s, r, l);
 
   if (pose === 'wave') questionBubble(p, f);
   if (pose === 'sleep') (look.sleepFx ?? ((pp: Px, ss: S) => zzz(pp, ss.f)))(p, s);
@@ -392,5 +415,15 @@ const PROPS: Record<RoleId, PropFn> = {
 };
 
 export function drawDeskProp(ctx: CanvasRenderingContext2D, x: number, y: number, role: RoleId, pose: Pose, frame: number): void {
-  PROPS[knownRole(role)](makePen(ctx, x, y), { pose: pose === 'waking' ? 'idle' : pose, f: wrap(frame) }); // TEMPORARY waking fallback (Task 8)
+  PROPS[knownRole(role)](makePen(ctx, x, y), { pose, f: wrap(frame) });
+}
+
+/** Empty office chair pushed back from the desk (owner is away at a skill machine). Character-cell coordinates. */
+export function drawEmptyChair(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  const p = makePen(ctx, x, y);
+  const c = '#8a7aa6';
+  p(2, 8, 4, 10, O); p(3, 9, 2, 8, c); p(3, 9, 1, 8, shade(c, 1.2));       // backrest
+  p(2, 15, 10, 3, O); p(3, 16, 8, 1, c);                                    // seat
+  p(6, 18, 2, 2, O);                                                        // post
+  p(3, 20, 8, 1, O); p(3, 21, 2, 1, C.dark); p(9, 21, 2, 1, C.dark);        // base + wheels
 }

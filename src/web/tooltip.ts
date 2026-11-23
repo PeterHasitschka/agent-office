@@ -24,12 +24,21 @@ export function hitTest(actors: Actor[], px: number, py: number): Actor | null {
   return best;
 }
 
+const minsSince = (t: number, now: number) => Math.max(0, Math.floor((now - t) / 60_000));
+export const TASK_BULLET = '– ';
+export const SKILL_PREFIX = 'Skill: ';
+
 export function formatTooltip(a: Agent, now: number): { title: string; lines: string[] } {
-  const mins = Math.max(0, Math.floor((now - a.startedAt) / 60_000));
   const role = ROLE_LABEL[knownRole(a.role)];
-  const lines = [role];
-  if (a.description) lines.push(a.description);
-  lines.push(STATUS_LABEL[a.status], `seit ${mins} min`);
+  const runs = a.runs ?? 0;
+  const lines = [runs > 1 ? `${role} · ${runs}. Einsatz` : role];
+  const tasks = a.recentTasks ?? [];
+  if (tasks.length > 1) {
+    if (a.description && a.description !== tasks[0]) lines.push(a.description);
+    for (const t of tasks.slice(0, 3)) lines.push(TASK_BULLET + t);
+  } else if (a.description) lines.push(a.description);
+  if (a.activeSkill) lines.push(`${SKILL_PREFIX}${a.activeSkill.name} (seit ${minsSince(a.activeSkill.since, now)} min)`);
+  lines.push(STATUS_LABEL[a.status], `seit ${minsSince(a.startedAt, now)} min`);
   return { title: a.name || role, lines };
 }
 
@@ -52,7 +61,10 @@ export class TooltipView {
       t.lines.forEach((line, i) => {
         const d = document.createElement('div');
         d.textContent = line;
-        d.className = i === 0 ? 'tt-role' : line === STATUS_LABEL[a.status] ? `tt-status tt-${a.status}` : 'tt-line';
+        d.className = i === 0 ? 'tt-role'
+          : line === STATUS_LABEL[a.status] ? `tt-status tt-${a.status}`
+          : line.startsWith(SKILL_PREFIX) ? 'tt-skill'
+          : line.startsWith(TASK_BULLET) ? 'tt-line tt-task' : 'tt-line';
         this.el.append(d);
       });
     }

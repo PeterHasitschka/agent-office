@@ -213,6 +213,42 @@ describe('Scene', () => {
       expect(sc.actors().find(x => x.agent.id === 'a')!.phase).toBe('arriving');
     });
 
+    it('changing happens in place (no snap to the target) and walking resumes after', () => {
+      const sc = new Scene();
+      feedM(sc, snap(ag('lead', { role: 'lead' })));
+      const a = sc.actors()[0];
+      const l = feedM(sc, snap(withSkill(ag('lead', { role: 'lead' }))));
+      const spot = l.spotFor('lead')!;
+      sc.tick(100); // a few px on the way to the machine
+      const x0 = a.x, y0 = a.y;
+      expect([x0, y0]).not.toEqual([spot.x, spot.y]);
+      feedM(sc, snap(withSkill(ag('lead', { role: 'critic' }))));
+      expect(a.phase).toBe('changing');
+      sc.tick(100);
+      expect([a.x, a.y]).toEqual([x0, y0]);
+      run(sc, CHANGE_MS);
+      expect(a.phase).toBe('seated');
+      run(sc, 60000);
+      expect([a.x, a.y]).toEqual([spot.x, spot.y]);
+    });
+
+    it('atMachine stays true while waking or changing at the machine spot', () => {
+      const sc = new Scene();
+      feedM(sc, snap(withSkill(ag('lead', { status: 'done' }))));
+      const a = sc.actors()[0];
+      run(sc, 60000);
+      expect(a.atMachine).toBe(true);
+      feedM(sc, snap(withSkill(ag('lead', { status: 'busy' }))));
+      expect(a.phase).toBe('waking');
+      sc.tick(16);
+      expect(a.atMachine).toBe(true);
+      run(sc, 1000);
+      feedM(sc, snap(withSkill(ag('lead', { role: 'critic' }))));
+      expect(a.phase).toBe('changing');
+      sc.tick(16);
+      expect(a.atMachine).toBe(true);
+    });
+
     it('agent without a spot on its floor stays at its desk', () => {
       const sc = new Scene();
       const l = feedM(sc, snap(ag('lead')));

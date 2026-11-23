@@ -54,4 +54,27 @@ describe('formatTooltip', () => {
   it('never shows negative ages', () => {
     expect(formatTooltip(ag('x', { startedAt: now + 60_000 }), now).lines).toContain('seit 0 min');
   });
+
+  it('active skill adds "Skill: <name> (seit X min)"', () => {
+    const t = formatTooltip(ag('x', { startedAt: now - 30 * 60_000, activeSkill: { name: 'acme:plan-writer', category: 'planning', since: now - 7 * 60_000 - 1 } }), now);
+    expect(t.lines).toContain('Skill: acme:plan-writer (seit 7 min)');
+    expect(formatTooltip(ag('x', { activeSkill: { name: 'sk', category: 'other', since: now + 5000 } }), now).lines).toContain('Skill: sk (seit 0 min)');
+    expect(formatTooltip(ag('x'), now).lines.some(l => l.startsWith('Skill:'))).toBe(false);
+  });
+
+  it('persona with runs > 1 shows "<role> · <runs>. Einsatz" as its role line', () => {
+    const t = formatTooltip(ag('x', { role: 'lab', runs: 5 }), now);
+    expect(t.lines[0]).toBe('Laborant · 5. Einsatz');
+    expect(formatTooltip(ag('x', { role: 'lab', runs: 1 }), now).lines[0]).toBe('Laborant');
+    expect(formatTooltip(ag('x', { role: 'lab' }), now).lines[0]).toBe('Laborant');
+  });
+
+  it('lists up to 3 recent tasks as "– <task>" lines when there is more than one', () => {
+    const t = formatTooltip(ag('x', { description: 'T1', recentTasks: ['T1', 'T2', 'T3', 'T4'], runs: 4 }), now);
+    expect(t.lines.filter(l => l.startsWith('– '))).toEqual(['– T1', '– T2', '– T3']);
+    expect(t.lines.filter(l => l === 'T1')).toEqual([]); // current task is the first list entry, not repeated
+    const one = formatTooltip(ag('x', { description: 'T1', recentTasks: ['T1'] }), now);
+    expect(one.lines.some(l => l.startsWith('– '))).toBe(false);
+    expect(one.lines).toContain('T1');
+  });
 });
