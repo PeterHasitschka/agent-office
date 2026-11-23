@@ -20,6 +20,36 @@ describe('EventStore', () => {
     expect(s.overrideFor('s1', 500)).toBe('idle');
   });
 
+  it('elicitation_dialog -> waiting; unknown notification type ignored', () => {
+    const s = new EventStore();
+    const cb = vi.fn();
+    s.onChange(cb);
+    s.ingest(ev('Notification', { notification_type: 'elicitation_dialog' }), 1000);
+    expect(s.overrideFor('s1', 0)).toBe('waiting');
+    s.ingest(ev('Stop'), 2000);
+    s.ingest(ev('Notification', { notification_type: 'auth_success', message: 'Logged in' }), 3000);
+    expect(s.overrideFor('s1', 0)).toBe('idle');
+    expect(cb).toHaveBeenCalledTimes(2);
+  });
+
+  it('no notification_type: idle message -> idle, other message -> waiting', () => {
+    const s = new EventStore();
+    s.ingest(ev('Notification', { message: 'Claude needs your permission to use Bash' }), 1000);
+    expect(s.overrideFor('s1', 0)).toBe('waiting');
+    s.ingest(ev('Notification', { message: 'Claude is waiting for your input' }), 2000);
+    expect(s.overrideFor('s1', 0)).toBe('idle');
+  });
+
+  it('PreToolUse of a question/plan tool -> waiting, other tools -> busy', () => {
+    const s = new EventStore();
+    for (const tool of ['AskUserQuestion', 'ExitPlanMode']) {
+      s.ingest(ev('PreToolUse', { tool_name: tool }), 1000);
+      expect(s.overrideFor('s1', 0)).toBe('waiting');
+      s.ingest(ev('PreToolUse', { tool_name: 'Bash' }), 2000);
+      expect(s.overrideFor('s1', 0)).toBe('busy');
+    }
+  });
+
   it('Stop after Notification -> idle; prompt/tool -> busy', () => {
     const s = new EventStore();
     s.ingest(ev('Notification', { notification_type: 'permission_prompt' }), 1000);

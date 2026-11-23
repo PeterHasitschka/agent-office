@@ -1,4 +1,5 @@
 import type { Status } from '../shared/types.js';
+import { WAITING_TOOLS } from './discovery/transcript.js';
 
 export interface HookEvent {
   hook_event_name: string;
@@ -6,23 +7,36 @@ export interface HookEvent {
   cwd?: string;
   notification_type?: string;
   message?: string;
+  tool_name?: string;
   agent_id?: string;
   agent_type?: string;
 }
 
 const MAX_SESSIONS = 1000;
+const WAITING_NOTIFICATIONS = new Set(['permission_prompt', 'elicitation_dialog']);
+const IDLE_MESSAGE = /waiting for your input/i;
+
+function notificationStatus(e: HookEvent): Status | null {
+  const t = e.notification_type;
+  if (typeof t === 'string' && t) {
+    if (WAITING_NOTIFICATIONS.has(t)) return 'waiting';
+    if (t === 'idle_prompt') return 'idle';
+    return null; // unknown/other types (auth, etc.): no state change
+  }
+  // Older Claude Code versions send no notification_type: fall back to the message text.
+  return IDLE_MESSAGE.test(e.message ?? '') ? 'idle' : 'waiting';
+}
 
 function mapStatus(e: HookEvent): Status | null | 'drop' {
   switch (e.hook_event_name) {
     case 'UserPromptSubmit':
-    case 'PreToolUse':
       return 'busy';
+    case 'PreToolUse':
+      return typeof e.tool_name === 'string' && WAITING_TOOLS.has(e.tool_name) ? 'waiting' : 'busy';
     case 'Stop':
       return 'idle';
     case 'Notification':
-      return e.notification_type === 'idle_prompt' || /waiting for your input/i.test(e.message ?? '')
-        ? 'idle'
-        : 'waiting';
+      return notificationStatus(e);
     case 'SessionEnd':
       return 'drop';
     default:
