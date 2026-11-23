@@ -5,6 +5,16 @@ export type RoleId =
   | 'artist' | 'strategist' | 'janitor' | 'doctor' | 'guard' | 'secretary'
   | 'lead' | 'intern';
 
+export type SkillCategory =
+  | 'ideas' | 'planning' | 'debugging' | 'review' | 'testing'
+  | 'git' | 'writing' | 'design' | 'running' | 'other';
+
+export interface ActiveSkill {
+  name: string;
+  category: SkillCategory;
+  since: number;
+}
+
 export interface Agent {
   id: string;
   kind: 'lead' | 'sub';
@@ -16,6 +26,9 @@ export interface Agent {
   lastActivityAt: number;
   finishedAt?: number;
   parentId?: string;
+  activeSkill?: ActiveSkill;
+  runs?: number;
+  recentTasks?: string[];
 }
 
 export interface Room {

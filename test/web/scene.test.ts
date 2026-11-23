@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Snapshot, Status, RoleId } from '../../src/shared/types.js';
 import { layoutBuilding } from '../../src/web/layout.js';
-import { Scene, changeProgress, CHANGE_MS } from '../../src/web/scene.js';
+import { Scene, changeProgress, CHANGE_MS, WALK_SPEED, ELEVATOR_SPEED } from '../../src/web/scene.js';
 
 const ag = (id: string, o: Partial<Agent> = {}): Agent => ({
   id, kind: id === 'lead' ? 'lead' : 'sub', name: id, description: '', role: 'builder',
@@ -120,5 +120,32 @@ describe('Scene', () => {
     let seen: number | null = null;
     for (let i = 0; i < 600 && seen === null; i++) { sc.tick(100); seen = sc.elevatorY(); }
     expect(seen).not.toBeNull();
+  });
+
+  it('speeds are 60/80 px/s', () => {
+    expect(WALK_SPEED).toBe(60);
+    expect(ELEVATOR_SPEED).toBe(80);
+    const sc = new Scene();
+    feed(sc, snap(ag('lead')));
+    feed(sc, snap(ag('lead'), ag('a')));
+    const a = sc.actors().find(x => x.agent.id === 'a')!;
+    // walking: far from the shaft, 900 ms covers 54 px, 1000 ms covers 60 px
+    const x0 = a.x;
+    sc.tick(900);
+    expect(Math.abs(a.x - x0)).toBeCloseTo(54, 5);
+    sc.tick(100);
+    expect(Math.abs(a.x - x0)).toBeCloseTo(60, 5);
+    // elevator: put the actor into the ride and measure vertical travel
+    const sc2 = new Scene();
+    feed(sc2, snap(ag('lead')));
+    const l2 = feed(sc2, snap(ag('lead'), ag('b')));
+    const b = sc2.actors().find(x => x.agent.id === 'b')!;
+    (b as { phase: string }).phase = 'riding-up';
+    b.y = l2.floors[0].rooms[0].desks[1].y + 500; // long ride ahead
+    const y0 = b.y;
+    sc2.tick(900);
+    expect(Math.abs(b.y - y0)).toBeCloseTo(72, 5);
+    sc2.tick(100);
+    expect(Math.abs(b.y - y0)).toBeCloseTo(80, 5);
   });
 });

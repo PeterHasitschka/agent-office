@@ -11,8 +11,8 @@ export interface Actor {
   agent: Agent; x: number; y: number; phase: ActorPhase; pose: Pose; shownRole: RoleId; phaseT: number;
 }
 
-export const WALK_SPEED = 30;      // px/s
-export const ELEVATOR_SPEED = 40;  // px/s
+export const WALK_SPEED = 60;      // px/s
+export const ELEVATOR_SPEED = 80;  // px/s
 export const CHANGE_MS = 600;
 export const MAX_TICK_MS = 1000;
 const DOOR_MARGIN = 4;
