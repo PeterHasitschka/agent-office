@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync, utimesSync
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { EventStore } from '../src/server/events';
 import { buildSnapshot, type RecentRooms, type RoleSource } from '../src/server/snapshot';
 import { resolveRepo } from '../src/server/discovery/repo';
 import { leadStatusDetail } from '../src/server/discovery/transcript';
@@ -204,6 +205,18 @@ describe('buildSnapshot', () => {
         const s = await buildSnapshot(opts(h, probe, { now: NOW }));
         expect(s.floors[0].rooms[0].agents[0].status).toBe('busy');
       }
+    });
+
+    it('plugin override replaces heuristic status (idle -> waiting, waiting -> idle)', async () => {
+      const events = new EventStore();
+      const a = write([{ type: 'ai-title', aiTitle: 't' }]);
+      events.ingest({ hook_event_name: 'Notification', session_id: 'sess-1', notification_type: 'permission_prompt' }, NOW);
+      let s = await buildSnapshot(opts(a.h, a.probe, { now: NOW, events }));
+      expect(s.floors[0].rooms[0].agents[0].status).toBe('waiting');
+      const b = write([toolUse('AskUserQuestion')]);
+      events.ingest({ hook_event_name: 'Stop', session_id: 'sess-1' }, NOW);
+      s = await buildSnapshot(opts(b.h, b.probe, { now: NOW, events }));
+      expect(s.floors[0].rooms[0].agents[0].status).toBe('idle');
     });
 
     it('AskUserQuestion stays waiting', async () => {

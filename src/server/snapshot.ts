@@ -1,5 +1,6 @@
 import { basename, join } from 'node:path';
 import type { Agent, Floor, RoleId, Room, Snapshot, Status } from '../shared/types.js';
+import type { EventStore } from './events.js';
 import { defaultProbe, listLiveSessions, type ProcessProbe } from './discovery/processes.js';
 import { resolveRepo } from './discovery/repo.js';
 import { listSubagents } from './discovery/subagents.js';
@@ -20,6 +21,7 @@ export interface SnapshotDeps {
   now?: number;
   floorOrder: Map<string, number>;
   recent?: RecentRooms;
+  events?: EventStore;
 }
 
 const KEEP_ENDED_MS = 30 * 60_000;
@@ -59,6 +61,7 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
           let name = roomLabel;
           let startedAt = s.procStartMs || now;
           let lastActivityAt = startedAt;
+          let transcriptMtime = 0;
           let openTools: string[] = [];
           if (tr) {
             const { entries, mtimeMs } = await tailJsonl(tr.path);
@@ -67,6 +70,7 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
             openTools = d.openTools;
             name = sessionTitle(entries) || roomLabel;
             lastActivityAt = mtimeMs || lastActivityAt;
+            transcriptMtime = mtimeMs;
           }
 
           const subs = tr
@@ -80,6 +84,9 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
           ) {
             status = 'busy';
           }
+
+          // Plugin hook events are ground truth: a fresh override replaces the heuristic entirely.
+          if (tr && deps.events) status = deps.events.overrideFor(tr.sessionId, transcriptMtime) ?? status;
 
           const lead: Agent = {
             id: leadId, kind: 'lead', name, description: `Session in ${cwd}`, role: 'lead',
