@@ -69,13 +69,16 @@ const G: Record<string, string[]> = {
   '|': ['#', '#', '#', '#', '#'],
 };
 
-const FOLD: Record<string, string> = { Ä: 'A', Ö: 'O', Ü: 'U', ß: 'S', É: 'E', È: 'E', À: 'A', '–': '-', '—': '-' };
+const FOLD: Record<string, string> = {
+  Ä: 'A', Ö: 'O', Ü: 'U', ä: 'A', ö: 'O', ü: 'U', ß: 'S', ẞ: 'S', É: 'E', È: 'E', À: 'A', é: 'E', è: 'E', à: 'A', '–': '-', '—': '-',
+};
 
 export const FONT_H = 5;
 
 function glyphFor(ch: string): string[] {
-  const up = ch.toUpperCase();
-  return G[up] ?? G[FOLD[up] ?? ''] ?? G['?'];
+  const folded = FOLD[ch]; // before uppercasing: 'ß'.toUpperCase() is 'SS'
+  if (folded) return G[folded];
+  return G[ch.toUpperCase()] ?? G['?'];
 }
 
 export function textWidth(text: string): number {

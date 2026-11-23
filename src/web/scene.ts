@@ -17,6 +17,11 @@ export const CHANGE_MS = 600;
 export const MAX_TICK_MS = 1000;
 const DOOR_MARGIN = 4;
 
+/** 0→1 progress of the costume change (phaseT = ms since the 'changing' phase started). */
+export function changeProgress(a: Actor): number {
+  return a.phase === 'changing' ? Math.min(1, Math.max(0, a.phaseT / CHANGE_MS)) : 0;
+}
+
 const STATUS_POSE: Record<Status, Pose> = { busy: 'work', idle: 'idle', done: 'sleep', waiting: 'wave' };
 
 interface Pt { x: number; y: number }

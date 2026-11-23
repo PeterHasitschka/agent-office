@@ -166,6 +166,11 @@ describe('demoSnapshot', () => {
     expect(s.floors.length).toBe(3);
     expect(s.floors.some((f) => f.rooms.some((r) => r.ended))).toBe(true);
   });
+  it('the extra sub-agent starts as intern and later gets its real role', () => {
+    const extra = (t: number) => all(t).find((a) => a.id === 'demo-sub-extra')!;
+    expect(extra(6).role).toBe('intern');
+    expect(extra(10).role).not.toBe('intern');
+  });
   it('adds and removes a sub-agent over time', () => {
     expect(all(6).length).toBe(all(0).length + 1);
     expect(all(12).length).toBe(all(0).length);

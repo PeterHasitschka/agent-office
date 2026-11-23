@@ -37,7 +37,7 @@ describe('formatTooltip', () => {
     expect(t.lines).toContain('Do a thing');
     expect(t.lines).toContain('arbeitet');
     expect(t.lines[t.lines.length - 1]).toBe('seit 12 min');
-    expect(t.lines[0]).toBeTruthy();
+    expect(t.lines[0]).toBe('Handwerker');
   });
   it('maps every status to the exact German label', () => {
     const cases = [['busy', 'arbeitet'], ['idle', 'wartet'], ['waiting', 'wartet auf dich'], ['done', 'schläft']] as const;

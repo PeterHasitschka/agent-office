@@ -93,7 +93,9 @@ export function demoSnapshot(now: number, tick: number): Snapshot {
       // The lifecycle extra: a short-lived intern in the first room.
       if (ri === 0 && extraPresent) {
         agents.push({
-          id: 'demo-sub-extra', kind: 'sub', name: 'general-purpose', description: 'Quick errand', role: 'intern',
+          // shows up as intern and gets its real role a few ticks later → costume-change puff
+          id: 'demo-sub-extra', kind: 'sub', name: 'general-purpose', description: 'Quick errand',
+          role: tick % 6 < 4 ? 'intern' : 'secretary',
           status: 'busy', startedAt: now - 5000, lastActivityAt: now, parentId: leadId,
         });
       }

@@ -8,7 +8,7 @@ import { drawText, textWidth } from './font.js';
 import type { Sky } from './render-sky.js';
 
 export interface Margins { left: number; right: number; top: number; bottom: number }
-export interface Env { sky: Sky; t: number; frame: number }
+export interface Env { sky: Sky; t: number }
 
 export const WALL = 3;            // facade wall thickness (outside the layout box)
 const SIGN_TEXT = 'AGENT OFFICE';

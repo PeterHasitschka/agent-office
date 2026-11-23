@@ -2,7 +2,7 @@
 import type { BuildingLayout } from './layout.js';
 import { LOBBY_H, ROOF_H } from './layout.js';
 import type { Actor, Scene } from './scene.js';
-import { CHANGE_MS } from './scene.js';
+import { changeProgress } from './scene.js';
 import { drawChibi, HEADROOM, SPRITE_H, SPRITE_W } from './sprites.js';
 import { drawSky, skyAt, type Sky } from './render-sky.js';
 import {
@@ -13,13 +13,15 @@ import { hitTest, TooltipView } from './tooltip.js';
 
 const FRAME_MS = 140;
 /** `?hour=13` pins the sky clock (handy for screenshots / README GIFs). */
-const FORCED_HOUR = Number(new URLSearchParams(location.search).get('hour') ?? NaN);
+const HOUR_PARAM = new URLSearchParams(location.search).get('hour');
+const FORCED_HOUR = HOUR_PARAM ? Number(HOUR_PARAM) : NaN;
 function clock(): Date {
   const d = new Date();
   if (Number.isFinite(FORCED_HOUR)) d.setHours(Math.floor(FORCED_HOUR), Math.round((FORCED_HOUR % 1) * 60));
   return d;
 }
 const RIDING = new Set(['riding-up', 'riding-down']);
+const DOOR_OPEN_PER_S = 7, DOOR_CLOSE_PER_S = 3.5;
 
 export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layout: BuildingLayout; scene: Scene }): void {
   const ctx = canvas.getContext('2d')!;
@@ -41,6 +43,7 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
 
   function fit(l: BuildingLayout): void {
     m = marginsFor(l);
+    // 2×–4× as specified; narrower windows keep 2× (1× is illegible) and the scroller scrolls sideways
     const z = Math.min(4, Math.max(2, Math.floor(scroller.clientWidth / (l.width + m.left + m.right))));
     // fill the viewport: extra width becomes side margins, extra height becomes sky above the roof
     const extraX = Math.max(0, Math.floor(scroller.clientWidth / z) - (l.width + m.left + m.right));
@@ -57,19 +60,20 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
       // floors stack below the roof, so the topmost floor (plus roof sign) starts at the canvas top
       const topFloor = l.floors[l.floors.length - 1];
       scroller.scrollTop = Math.max(0, (topFloor.rect.y - ROOF_H) * zoom);
+      scroller.scrollLeft = Math.max(0, (W * zoom - scroller.clientWidth) / 2); // narrow window: start centred
       didInitialScroll = true;
     } else if (prevTop > 0 && prevH > 0) {
       scroller.scrollTop = prevTop + (H * zoom - prevH); // building grew upwards: keep the view anchored
     }
   }
 
-  function draw(l: BuildingLayout, scene: Scene, now: number): void {
+  function draw(l: BuildingLayout, scene: Scene, now: number, dt: number): void {
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.imageSmoothingEnabled = false;
     if (now - skyAtMs > 10_000) { sky = skyAt(clock()); skyAtMs = now; document.body.style.background = sky.bottom; }
     drawSky(ctx, W, H, sky, now);
     ctx.setTransform(scale, 0, 0, scale, m.left * scale, m.top * scale);
-    const env: Env = { sky, t: now, frame };
+    const env: Env = { sky, t: now };
     const actors = scene.actors();
     const byId = new Map(actors.map(a => [a.agent.id, a]));
     const litFloors = new Set(l.floors.filter(f => f.rooms.some(r => r.lit)).map(f => f.floorId));
@@ -78,7 +82,7 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
     drawFacade(ctx, l, env, litFloors);
     drawRoof(ctx, l, env);
     const near = actors.some(a => (a.phase === 'arriving' || a.phase === 'exiting') && a.x > l.width - 44 && a.y > l.lobby.y);
-    doorOpen = Math.max(0, Math.min(1, doorOpen + (near ? 0.12 : -0.06)));
+    doorOpen = Math.max(0, Math.min(1, doorOpen + (near ? DOOR_OPEN_PER_S : -DOOR_CLOSE_PER_S) * dt / 1000));
     drawLobby(ctx, l, env, doorOpen);
     l.floors.forEach((f, i) => {
       drawFloorBase(ctx, l, f, env, i);
@@ -96,7 +100,7 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
     const sorted = [...actors].sort((a, b) => a.y - b.y || a.x - b.x);
     for (const a of sorted) {
       drawChibi(ctx, a.x, a.y, a.shownRole, a.pose, frame + (hash(a.agent.id) & 3));
-      if (a.phase === 'changing') drawPuff(ctx, a, a.phaseT / CHANGE_MS);
+      if (a.phase === 'changing') drawPuff(ctx, a, changeProgress(a));
     }
     if (riders.length === 0) drawCarFront(ctx, l.lobby.y + LOBBY_H - SPRITE_H - 2);
     for (const a of riders) drawCarFront(ctx, a.y);
@@ -126,27 +130,30 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
     const { layout, scene } = getState();
     scene.tick(dt);
     fit(layout);
-    draw(layout, scene, now);
+    draw(layout, scene, now, dt);
   }
   requestAnimationFrame(loop);
 }
 
-/** Costume-change smoke puff: grey blobs bloom outwards and fade, a few sparkles. */
+/** Costume-change smoke puff: a solid cloud hides the figure, blooms outwards, then fades; sparkles circle it. */
 function drawPuff(ctx: CanvasRenderingContext2D, a: Actor, p: number): void {
-  const cx = Math.round(a.x) + SPRITE_W / 2, cy = Math.round(a.y) + SPRITE_H / 2;
-  const r = 3 + Math.round(p * 9);
-  ctx.globalAlpha = Math.max(0, 1 - p * 0.8);
-  const blobs: [number, number, number][] = [[0, 0, 6], [-1, -1, 4], [1, -1, 4], [-1, 1, 4], [1, 1, 4], [0, -1.4, 3], [0, 1.4, 3], [-1.4, 0, 3], [1.4, 0, 3]];
-  for (const [dx, dy, s] of blobs) {
-    const bs = Math.max(2, Math.round(s * (1 - p * 0.4)));
-    const bx = Math.round(cx + dx * r * 0.7 - bs / 2), by = Math.round(cy + dy * r * 0.7 - bs / 2);
-    ctx.fillStyle = '#8a8a9a'; ctx.fillRect(bx, by + 1, bs, bs);
-    ctx.fillStyle = '#f2f2f6'; ctx.fillRect(bx, by, bs, bs);
+  const cx = Math.round(a.x) + SPRITE_W / 2, cy = Math.round(a.y) + SPRITE_H / 2 + 1;
+  const r = 4 + Math.round(7 * Math.sin((p * Math.PI) / 2));
+  ctx.globalAlpha = p < 0.6 ? 1 : Math.max(0, (1 - p) / 0.4);
+  const blobs: [number, number, number][] = [
+    [0, 0, 12], [-1, -0.6, 7], [1, -0.6, 7], [-1, 0.7, 7], [1, 0.7, 7], [0, -1.2, 6], [0, 1.2, 6], [-1.4, 0, 5], [1.4, 0, 5],
+  ];
+  for (const pass of [0, 1]) for (const [dx, dy, sz] of blobs) {
+    const bs = Math.max(2, Math.round(sz * (1 - p * 0.35)));
+    const bx = Math.round(cx + dx * r - bs / 2), by = Math.round(cy + dy * r - bs / 2);
+    if (pass === 0) { ctx.fillStyle = '#2a1e26'; ctx.fillRect(bx - 1, by - 1, bs + 2, bs + 2); }
+    else { ctx.fillStyle = '#b9b9cc'; ctx.fillRect(bx, by + 1, bs, bs - 1); ctx.fillStyle = '#ffffff'; ctx.fillRect(bx, by, bs, bs - 2); }
   }
   ctx.fillStyle = '#ffd84a';
-  for (let i = 0; i < 4; i++) {
-    const ang = i * 1.57 + p * 3;
-    ctx.fillRect(Math.round(cx + Math.cos(ang) * (r + 3)), Math.round(cy + Math.sin(ang) * (r + 3)), 1, 1);
+  for (let i = 0; i < 5; i++) {
+    const ang = i * 1.256 + p * 4;
+    const sx = Math.round(cx + Math.cos(ang) * (r + 6)), sy = Math.round(cy + Math.sin(ang) * (r + 6));
+    ctx.fillRect(sx, sy - 1, 1, 3); ctx.fillRect(sx - 1, sy, 3, 1);
   }
   ctx.globalAlpha = 1;
 }

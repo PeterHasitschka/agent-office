@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Snapshot, Status, RoleId } from '../../src/shared/types.js';
 import { layoutBuilding } from '../../src/web/layout.js';
-import { Scene } from '../../src/web/scene.js';
+import { Scene, changeProgress, CHANGE_MS } from '../../src/web/scene.js';
 
 const ag = (id: string, o: Partial<Agent> = {}): Agent => ({
   id, kind: id === 'lead' ? 'lead' : 'sub', name: id, description: '', role: 'builder',
@@ -74,6 +74,20 @@ describe('Scene', () => {
     run(sc, 400);
     expect(a.phase).toBe('seated');
     expect(a.shownRole).toBe('builder');
+  });
+
+  it('changeProgress follows phaseT in ms since the change started', () => {
+    const sc = new Scene();
+    feed(sc, snap(ag('lead'), ag('a', { role: 'intern' })));
+    feed(sc, snap(ag('lead'), ag('a', { role: 'builder' })));
+    const a = sc.actors().find(x => x.agent.id === 'a')!;
+    expect(changeProgress(a)).toBe(0);
+    sc.tick(300);
+    expect(a.phaseT).toBe(300);
+    expect(changeProgress(a)).toBeCloseTo(300 / CHANGE_MS);
+    sc.tick(CHANGE_MS);
+    expect(a.phase).toBe('seated');
+    expect(changeProgress(a)).toBe(0);
   });
 
   it('maps status to pose', () => {
