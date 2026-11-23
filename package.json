@@ -9,7 +9,10 @@
   "scripts": {
     "test": "vitest run",
     "build": "node build.mjs",
-    "dev": "tsx src/server/cli.ts"
+    "dev": "tsx src/server/cli.ts",
+    "laya": "tsx src/server/cli.ts laya",
+    "start:all": "tsx src/server/cli.ts --with-laya --open",
+    "demo": "tsx src/server/cli.ts --demo --open"
   },
   "engines": {
     "node": ">=20"
