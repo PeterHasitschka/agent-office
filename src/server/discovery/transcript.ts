@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import type { Status } from '../../shared/types.js';
 import { cwdToSlug } from '../util/slug.js';
 
-const WAITING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+export const WAITING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+export const SPAWN_TOOLS = new Set(['Task', 'Agent']);
 const OPEN_TOOL_WAIT_MS = 15000;
 const RECENT_WRITE_MS = 10000;
 
@@ -53,6 +54,15 @@ function messageId(entry: Obj): unknown {
 
 /** Heuristic status of a lead session from its transcript tail. */
 export function leadStatus(entries: unknown[], mtimeMs: number, now: number): Status {
+  return leadStatusDetail(entries, mtimeMs, now).status;
+}
+
+/** Like leadStatus, plus the names of tool_use blocks still awaiting a result. */
+export function leadStatusDetail(
+  entries: unknown[],
+  mtimeMs: number,
+  now: number,
+): { status: Status; openTools: string[] } {
   const msgs = entries.filter(
     (e): e is Obj => isObj(e) && (e.type === 'assistant' || e.type === 'user'),
   );
@@ -98,10 +108,13 @@ export function leadStatus(entries: unknown[], mtimeMs: number, now: number): St
           (typeof u.name === 'string' && WAITING_TOOLS.has(u.name)) ||
           now - u.ts > OPEN_TOOL_WAIT_MS,
       );
-      return waiting ? 'waiting' : 'busy';
+      return {
+        status: waiting ? 'waiting' : 'busy',
+        openTools: open.map((u) => String(u.name)),
+      };
     }
   }
-  return now - mtimeMs < RECENT_WRITE_MS ? 'busy' : 'idle';
+  return { status: now - mtimeMs < RECENT_WRITE_MS ? 'busy' : 'idle', openTools: [] };
 }
 
 /** Last `ai-title` value in the entries, or null. */
