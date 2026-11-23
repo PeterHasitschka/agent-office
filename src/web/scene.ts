@@ -5,15 +5,18 @@ import { SPRITE_W, SPRITE_H, type Pose } from './sprites.js';
 
 export type ActorPhase =
   | 'arriving' | 'riding-up' | 'walking-in' | 'seated' | 'changing'
-  | 'leaving-desk' | 'riding-down' | 'exiting' | 'gone';
+  | 'waking' | 'leaving-desk' | 'riding-down' | 'exiting' | 'gone';
 
 export interface Actor {
   agent: Agent; x: number; y: number; phase: ActorPhase; pose: Pose; shownRole: RoleId; phaseT: number;
+  /** True while standing at a skill machine (target is a spot and reached). */
+  atMachine: boolean;
 }
 
 export const WALK_SPEED = 60;      // px/s
 export const ELEVATOR_SPEED = 80;  // px/s
 export const CHANGE_MS = 600;
+export const WAKE_MS = 800;
 export const MAX_TICK_MS = 1000;
 const DOOR_MARGIN = 4;
 
@@ -46,22 +49,26 @@ export class Scene {
         const start = this.first ? desk : this.door();
         act = {
           agent: a, x: start.x, y: start.y, phase: this.first ? 'seated' : 'arriving',
-          pose: STATUS_POSE[a.status], shownRole: a.role, phaseT: 0,
+          pose: STATUS_POSE[a.status], shownRole: a.role, phaseT: 0, atMachine: false,
         };
         this.map.set(id, act);
         continue;
       }
+      const prev = act.agent;
       act.agent = a;
       // Came back while leaving: turn around.
       if (act.phase === 'leaving-desk') this.setPhase(act, 'walking-in');
       else if (act.phase === 'riding-down') this.setPhase(act, 'riding-up');
       else if (act.phase === 'exiting') this.setPhase(act, 'arriving');
-      if (act.phase === 'seated' && a.role !== act.shownRole) this.setPhase(act, 'changing');
+      const woke = ((prev.status === 'done' || prev.status === 'idle') && a.status === 'busy')
+        || (a.runs ?? 0) > (prev.runs ?? 0);
+      if (act.phase === 'seated' && woke) this.setPhase(act, 'waking');
+      else if (act.phase === 'seated' && a.role !== act.shownRole) this.setPhase(act, 'changing');
     }
     for (const [id, act] of this.map) {
       if (agents.has(id)) continue;
       if (act.phase === 'arriving' || act.phase === 'riding-up' || act.phase === 'walking-in'
-        || act.phase === 'seated' || act.phase === 'changing') this.setPhase(act, 'leaving-desk');
+        || act.phase === 'seated' || act.phase === 'changing' || act.phase === 'waking') this.setPhase(act, 'leaving-desk');
     }
     if (agents.size > 0) this.first = false; // "first" = first update that actually contains agents
     for (const act of this.map.values()) this.updatePose(act);
@@ -94,6 +101,24 @@ export class Scene {
   elevatorY(): number | null {
     for (const a of this.map.values()) if (a.phase === 'riding-up' || a.phase === 'riding-down') return a.y;
     return null;
+  }
+
+  /** Where a seated actor belongs: its skill machine spot if any, else its desk. */
+  private target(id: string): (Pt & { spot: boolean }) | null {
+    const sp = this.layout!.spotFor(id);
+    if (sp) return { x: sp.x, y: sp.y, spot: true };
+    const d = this.desks.get(id);
+    return d ? { x: d.x, y: d.y, spot: false } : null;
+  }
+
+  /** Horizontal first on the current row, then vertical, both at walk speed. */
+  private moveHV(a: Actor, tx: number, ty: number, budget: number): [boolean, number] {
+    if (a.x !== tx) {
+      const [ok, left] = this.move(a, tx, a.y, WALK_SPEED, budget);
+      if (!ok) return [false, 0];
+      budget = left;
+    }
+    return this.move(a, tx, ty, WALK_SPEED, budget);
   }
 
   private door(): Pt {
@@ -142,12 +167,19 @@ export class Scene {
         return left;
       }
       case 'seated': {
-        if (!desk) { this.setPhase(a, 'leaving-desk'); return budget; }
-        [, left] = this.move(a, desk.x, desk.y, WALK_SPEED, budget); // slide after layout shifts
+        const t = this.target(id);
+        if (!t) { this.setPhase(a, 'leaving-desk'); return budget; }
+        [, left] = this.moveHV(a, t.x, t.y, budget); // walk to machine/desk, slide after layout shifts
         return left;
       }
+      case 'waking': {
+        a.phaseT += dtMs;
+        if (a.phaseT >= WAKE_MS) this.setPhase(a, 'seated');
+        return 0;
+      }
       case 'changing': {
-        if (desk) { a.x = desk.x; a.y = desk.y; }
+        const t = this.target(id);
+        if (t) { a.x = t.x; a.y = t.y; }
         a.phaseT += dtMs;
         if (a.phaseT >= CHANGE_MS) { a.shownRole = a.agent.role; this.setPhase(a, 'seated'); }
         return 0;
@@ -173,9 +205,11 @@ export class Scene {
   }
 
   private updatePose(a: Actor): void {
-    const desk = this.desks.get(a.agent.id);
+    const t = this.target(a.agent.id);
+    a.atMachine = a.phase === 'seated' && !!t && t.spot && a.x === t.x && a.y === t.y;
     switch (a.phase) {
-      case 'seated': a.pose = desk && (a.x !== desk.x || a.y !== desk.y) ? 'walk' : STATUS_POSE[a.agent.status]; break;
+      case 'seated': a.pose = t && (a.x !== t.x || a.y !== t.y) ? 'walk' : STATUS_POSE[a.agent.status]; break;
+      case 'waking': a.pose = 'waking'; break;
       case 'changing': a.pose = 'idle'; break;
       case 'riding-up': case 'riding-down': a.pose = 'idle'; break;
       default: a.pose = 'walk';

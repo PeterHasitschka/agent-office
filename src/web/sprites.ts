@@ -156,6 +156,7 @@ export function knownRole(role: string): RoleId {
 
 export function drawChibi(ctx: CanvasRenderingContext2D, x: number, y: number, role: RoleId, pose: Pose, frame: number): void {
   role = knownRole(role);
+  if (pose === 'waking') pose = 'idle'; // TEMPORARY until Task 8 draws the real waking pose
   const f = wrap(frame);
   const s: S = { pose, f };
   const look = ROLE_LOOKS[role];
@@ -391,5 +392,5 @@ const PROPS: Record<RoleId, PropFn> = {
 };
 
 export function drawDeskProp(ctx: CanvasRenderingContext2D, x: number, y: number, role: RoleId, pose: Pose, frame: number): void {
-  PROPS[knownRole(role)](makePen(ctx, x, y), { pose, f: wrap(frame) });
+  PROPS[knownRole(role)](makePen(ctx, x, y), { pose: pose === 'waking' ? 'idle' : pose, f: wrap(frame) }); // TEMPORARY waking fallback (Task 8)
 }

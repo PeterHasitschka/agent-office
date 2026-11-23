@@ -4,7 +4,7 @@
 //   18..20 legs, 21 shoes. Rows -8..-1 are headroom for bubbles / zZ.
 import type { RoleId } from '../shared/types.js';
 
-export type Pose = 'work' | 'idle' | 'sleep' | 'walk' | 'wave';
+export type Pose = 'work' | 'idle' | 'sleep' | 'walk' | 'wave' | 'waking';
 export type Px = (x: number, y: number, w: number, h: number, c: string) => void;
 export interface S { pose: Pose; f: number }
 export interface Pt { x: number; y: number }

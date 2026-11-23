@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Snapshot, Status, RoleId } from '../../src/shared/types.js';
 import { layoutBuilding } from '../../src/web/layout.js';
-import { Scene, changeProgress, CHANGE_MS, WALK_SPEED, ELEVATOR_SPEED } from '../../src/web/scene.js';
+import { Scene, changeProgress, CHANGE_MS, WALK_SPEED, ELEVATOR_SPEED, WAKE_MS } from '../../src/web/scene.js';
 
 const ag = (id: string, o: Partial<Agent> = {}): Agent => ({
   id, kind: id === 'lead' ? 'lead' : 'sub', name: id, description: '', role: 'builder',
@@ -97,6 +97,7 @@ describe('Scene', () => {
     const a = sc.actors()[0];
     for (const [s, p] of [['waiting', 'wave'], ['done', 'sleep'], ['idle', 'idle'], ['busy', 'work']] as const) {
       feed(sc, mk(s)); sc.tick(16);
+      if (a.phase === 'waking') { expect(a.pose).toBe('waking'); sc.tick(WAKE_MS); }
       expect(a.pose).toBe(p);
     }
   });
@@ -147,5 +148,77 @@ describe('Scene', () => {
     expect(Math.abs(b.y - y0)).toBeCloseTo(72, 5);
     sc2.tick(100);
     expect(Math.abs(b.y - y0)).toBeCloseTo(80, 5);
+  });
+
+  describe('skill machines and waking', () => {
+    const withSkill = (a: Agent): Agent => ({ ...a, activeSkill: { name: 'sk', category: 'review', since: 1 } });
+    const machines = new Map([['f', [{ name: 'sk', category: 'review' as const }]]]);
+    const feedM = (sc: Scene, s: Snapshot) => { const l = layoutBuilding(s, { machines }); sc.update(s, l); return l; };
+
+    it('walks to the machine spot when a skill is active, and back to the desk after', () => {
+      const sc = new Scene();
+      feedM(sc, snap(ag('lead')));
+      const a = sc.actors()[0];
+      expect(a.atMachine).toBe(false);
+      const l = feedM(sc, snap(withSkill(ag('lead'))));
+      const spot = l.spotFor('lead')!;
+      expect(spot).not.toBeNull();
+      sc.tick(16);
+      expect(a.atMachine).toBe(false);
+      expect(a.pose).toBe('walk');
+      run(sc, 60000);
+      expect([a.x, a.y]).toEqual([spot.x, spot.y]);
+      expect(a.atMachine).toBe(true);
+      const l2 = feedM(sc, snap(ag('lead')));
+      sc.tick(16);
+      expect(a.atMachine).toBe(false);
+      run(sc, 60000);
+      const d = l2.floors[0].rooms[0].desks[0];
+      expect([a.x, a.y]).toEqual([d.x, d.y]);
+      expect(a.atMachine).toBe(false);
+    });
+
+    it('done -> busy wakes for WAKE_MS then seats', () => {
+      const sc = new Scene();
+      feed(sc, snap(ag('lead', { status: 'done' })));
+      feed(sc, snap(ag('lead', { status: 'busy' })));
+      const a = sc.actors()[0];
+      expect(a.phase).toBe('waking');
+      sc.tick(16);
+      expect(a.pose).toBe('waking');
+      sc.tick(WAKE_MS - 100);
+      expect(a.phase).toBe('waking');
+      sc.tick(100);
+      expect(a.phase).toBe('seated');
+      expect(a.pose).toBe('work');
+    });
+
+    it('idle -> busy and runs increase while busy wake; other changes do not', () => {
+      const sc = new Scene();
+      feed(sc, snap(ag('lead', { status: 'idle' })));
+      feed(sc, snap(ag('lead', { status: 'busy', runs: 3 })));
+      expect(sc.actors()[0].phase).toBe('waking');
+      run(sc, 1000);
+      feed(sc, snap(ag('lead', { status: 'busy', runs: 3 })));
+      expect(sc.actors()[0].phase).toBe('seated');
+      feed(sc, snap(ag('lead', { status: 'busy', runs: 4 })));
+      expect(sc.actors()[0].phase).toBe('waking');
+    });
+
+    it('does not wake an arriving actor', () => {
+      const sc = new Scene();
+      feed(sc, snap(ag('lead')));
+      feed(sc, snap(ag('lead'), ag('a', { status: 'done' })));
+      feed(sc, snap(ag('lead'), ag('a', { status: 'busy' })));
+      expect(sc.actors().find(x => x.agent.id === 'a')!.phase).toBe('arriving');
+    });
+
+    it('agent without a spot on its floor stays at its desk', () => {
+      const sc = new Scene();
+      const l = feedM(sc, snap(ag('lead')));
+      run(sc, 1000);
+      expect(l.spotFor('lead')).toBeNull();
+      expect(sc.actors()[0].atMachine).toBe(false);
+    });
   });
 });
