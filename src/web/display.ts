@@ -1,15 +1,17 @@
 // Web-side display state: smooths the server snapshot so figures/machines do not flicker.
-//  - an agent's activeSkill stays displayed until it is absent in 2 consecutive updates
+//  - an agent's activeSkill stays displayed until it is absent in >= 2 consecutive updates AND
+//    >= SKILL_HOLD_MS have passed since it was last seen (snapshots can arrive every ~300 ms)
 //  - a machine stays on its floor until no displayed agent uses it + HOLD_MS
 // Pure apart from its own state; the caller supplies `now`.
 import type { Snapshot, SkillCategory, ActiveSkill } from '../shared/types.js';
 
 export const MACHINE_HOLD_MS = 10_000;
+export const SKILL_HOLD_MS = 10_000;
 const MISSING_LIMIT = 2;
 
 export interface MachineInfo { name: string; category: SkillCategory }
 
-interface AgentState { seq: number; skill?: ActiveSkill; missing: number; spot?: { key: string; idx: number } }
+interface AgentState { seq: number; skill?: ActiveSkill; missing: number; lastSeen: number; spot?: { key: string; idx: number } }
 interface HeldMachine extends MachineInfo { lastUsed: number }
 
 export class DisplayState {
@@ -27,9 +29,9 @@ export class DisplayState {
         agents: r.agents.map(a => {
           seen.add(a.id);
           let st = this.agents.get(a.id);
-          if (!st) { st = { seq: this.seq++, missing: 0 }; this.agents.set(a.id, st); }
-          if (a.activeSkill) { st.skill = a.activeSkill; st.missing = 0; }
-          else if (st.skill && ++st.missing >= MISSING_LIMIT) { st.skill = undefined; st.missing = 0; }
+          if (!st) { st = { seq: this.seq++, missing: 0, lastSeen: now }; this.agents.set(a.id, st); }
+          if (a.activeSkill) { st.skill = a.activeSkill; st.missing = 0; st.lastSeen = now; }
+          else if (st.skill && ++st.missing >= MISSING_LIMIT && now - st.lastSeen >= SKILL_HOLD_MS) { st.skill = undefined; st.missing = 0; }
           if (!st.skill) { const { activeSkill: _drop, ...rest } = a; return rest; }
           if (r.ended) return { ...a, activeSkill: st.skill }; // ended rooms never use machines
           users.push({ id: a.id, key: `${f.id}\0${st.skill.name}` });

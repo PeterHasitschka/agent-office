@@ -55,23 +55,40 @@ describe('buildPersonas', () => {
     expect(ps.find((p) => p.slot === 0)!.current.id).toBe('a');
   });
 
-  it('crashed instance (3 min silent) frees slot 0 for the next one', () => {
-    const list = [inst('a', 'scout', 10, 3, false), inst('b', 'scout', 1, 0, false)];
+  it('crashed instance (31 min silent) frees slot 0 for the next one', () => {
+    const list = [inst('a', 'scout', 40, 31, false), inst('b', 'scout', 1, 0, false)];
     const ps = buildPersonas(list, 'lead', NOW);
     expect(ps).toHaveLength(1);
     expect(ps[0]).toMatchObject({ id: 'lead:scout:0', runs: 2, status: 'busy' });
     expect(ps[0].current.id).toBe('b');
   });
 
-  it('truly parallel instances (both written < 2 min ago) are never collapsed', () => {
-    const list = [inst('a', 'scout', 10, 1.5, false), inst('b', 'scout', 5, 0.5, false)];
+  it('truly parallel instances (both written < 30 min ago) are never collapsed', () => {
+    const list = [inst('a', 'scout', 40, 20, false), inst('b', 'scout', 5, 0.5, false)];
     expect(buildPersonas(list, 'lead', NOW)).toHaveLength(2);
   });
 
-  it('idle when running but silent 30s..2min', () => {
-    const [p] = buildPersonas([inst('a', 'scout', 5, 1, false)], 'lead', NOW);
-    expect(p.status).toBe('idle');
-    expect(p.finishedAt).toBeUndefined();
+  it('idle (not done) when running but silent, even for many minutes', () => {
+    for (const silent of [1, 10, 29]) {
+      const [p] = buildPersonas([inst('a', 'scout', 40, silent, false)], 'lead', NOW);
+      expect(p.status).toBe('idle');
+      expect(p.finishedAt).toBeUndefined();
+    }
+  });
+
+  it('stale (< 30 min), then resumes while a same-type instance started in between -> two stable figures, no swap', () => {
+    const a = inst('a', 'scout', 20, 15, false);
+    const b = inst('b', 'scout', 5, 0, false);
+    const before = buildPersonas([a, b], 'lead', NOW);
+    const later = NOW + 2 * MIN;
+    const after = buildPersonas([{ ...a, lastWriteAt: later - 5_000 }, { ...b, lastWriteAt: later }], 'lead', later);
+    for (const ps of [before, after]) {
+      expect(ps).toHaveLength(2);
+      expect(ps.find((p) => p.slot === 0)).toMatchObject({ runs: 1, current: { id: 'a' } });
+      expect(ps.find((p) => p.slot === 1)).toMatchObject({ runs: 1, current: { id: 'b' } });
+    }
+    expect(before.find((p) => p.slot === 0)!.status).toBe('idle');
+    expect(after.find((p) => p.slot === 0)!.status).toBe('busy');
   });
 
   it('different agent types are separate personas', () => {

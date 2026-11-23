@@ -19,6 +19,19 @@ describe('DisplayState', () => {
     expect(skillOf(d.update(snap(ag('a')), 10000), 'a')).toBeUndefined();
   });
 
+  it('rapid snapshots (300 ms apart) keep the skill until 10 s since it was last seen', () => {
+    const d = new DisplayState();
+    expect(skillOf(d.update(snap(ag('a', 'my-review')), 0), 'a')).toBe('my-review');
+    for (let t = 300; t < 10_000; t += 300) expect(skillOf(d.update(snap(ag('a')), t), 'a')).toBe('my-review');
+    expect(skillOf(d.update(snap(ag('a')), 10_200), 'a')).toBeUndefined();
+  });
+
+  it('one missing snapshot never drops the skill, even after a long gap', () => {
+    const d = new DisplayState();
+    d.update(snap(ag('a', 'my-review')), 0);
+    expect(skillOf(d.update(snap(ag('a')), 60_000), 'a')).toBe('my-review');
+  });
+
   it('a returning skill resets the miss counter', () => {
     const d = new DisplayState();
     d.update(snap(ag('a', 'my-review')), 0);
@@ -61,12 +74,11 @@ describe('DisplayState', () => {
     d.update(snap(ag('a', 'x'), ag('b', 'y')), 0);
     expect(names()).toEqual(['x', 'y']);
     d.update(snap(ag('a'), ag('b', 'y')), 1000);
-    d.update(snap(ag('a'), ag('b', 'y'), ag('c', 'z')), 2000); // x dropped from display → held (last used 1000)
+    d.update(snap(ag('a'), ag('b', 'y'), ag('c', 'z')), 10_000); // x dropped from display → held (last used 1000)
     expect(names()).toEqual(['x', 'y', 'z']);
-    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 3000);
-    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 4000); // y held too (last used 3000)
+    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 10_500); // y still displayed (hysteresis)
     expect(names()).toEqual(['x', 'y', 'z']);
-    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 11_500); // x expired, y still held
+    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 11_500); // x expired, y still in use
     expect(names()).toEqual(['y', 'z']);
     d.update(snap(ag('a', 'x'), ag('b'), ag('c', 'z')), 11_800);
     expect(names()).toEqual(['y', 'z', 'x']);
@@ -79,10 +91,10 @@ describe('DisplayState', () => {
       d.update(two('s', 's'), 0);
       expect([d.spotIndex().get('a'), d.spotIndex().get('b')]).toEqual([0, 1]);
       d.update(two(undefined, 's'), 1000);
-      d.update(two(undefined, 's'), 2000); // a dropped after hysteresis
+      d.update(two(undefined, 's'), 10_000); // a dropped after hysteresis (2 misses + 10 s)
       expect(d.spotIndex().get('a')).toBeUndefined();
       expect(d.spotIndex().get('b')).toBe(1);
-      d.update(two(undefined, 's', 's'), 3000);
+      d.update(two(undefined, 's', 's'), 11_000);
       expect(d.spotIndex().get('c')).toBe(0);
       expect(d.spotIndex().get('b')).toBe(1);
     });

@@ -2,7 +2,7 @@ import type { Status } from '../shared/types.js';
 import type { SubagentInstance } from './discovery/subagents.js';
 
 const BUSY_MS = 30_000;
-const STALE_MS = 120_000;
+const STALE_MS = 30 * 60_000;
 const KEEP_FINISHED_MS = 30 * 60_000;
 
 export interface PersonaInfo {
@@ -18,7 +18,7 @@ export interface PersonaInfo {
   finishedAt?: number;
 }
 
-/** When an instance stops occupying its slot: finished, or silent > 2 min (crashed); otherwise still running. */
+/** When an instance stops occupying its slot: finished, or silent > 30 min (crashed); otherwise still running. */
 function endAt(i: SubagentInstance, now: number): number {
   return i.finished || now - i.lastWriteAt > STALE_MS ? i.lastWriteAt : Infinity;
 }
@@ -43,8 +43,8 @@ export function buildPersonas(instances: SubagentInstance[], leadId: string, now
     slots.forEach((occ, slot) => {
       const current = occ[occ.length - 1];
       const end = endAt(current, now);
-      const done = end !== Infinity;
-      if (done && now - end >= KEEP_FINISHED_MS) return;
+      if (end !== Infinity && now - end >= KEEP_FINISHED_MS) return;
+      const done = current.finished; // silent-but-unfinished stays idle, never 'done'
       out.push({
         id: `${leadId}:${agentType}:${slot}`,
         agentType,

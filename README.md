@@ -75,7 +75,7 @@ What counts as a skill use (the latest one wins):
 - a `Skill` tool call in the transcript (for example `acme:deploy-helper`),
 - a slash command you typed, such as `/my-review`. Built-in commands like `/clear`, `/model` or `/mcp` are not skills and are ignored (see `ignoreCommands` below).
 
-A skill is shown as active only while the figure is busy or waiting for you (sub-agents: busy) and the skill was used less than 15 minutes ago. Once the agent goes idle or finishes, or the 15 minutes pass, the figure walks back to its desk. To avoid flicker, a figure only leaves the machine after the skill is missing from two snapshots in a row, and an unused machine stays for 10 s so the floor does not shrink under figures that are still walking away.
+A skill is shown as active only while the figure is busy or waiting for you (sub-agents: busy) and the skill was used less than 15 minutes ago. Once the agent goes idle or finishes, or the 15 minutes pass, the figure walks back to its desk. To avoid flicker, a figure only leaves the machine after the skill is missing from two snapshots in a row and has not been seen for 10 s, and an unused machine stays for 10 s so the floor does not shrink under figures that are still walking away.
 
 Each skill gets a category by keyword rules, matched against the skill name (including a plugin prefix) first and then against its description from Claude Code's skill listing (only keywords of 4 or more characters, otherwise nearly everything matches). Matching works like for roles: keywords match at the start of a word, and the first category in the table wins. So `writing-plans` is `planning` and `test-driven-development` is `testing`. A sub-agent that would otherwise be an `intern` takes the look of its skill's category (`ideas`/`planning` as strategist, `debugging` as doctor, `review` as critic, `testing` as lab, `git`/`writing` as poet, `design` as artist, `running` as janitor); explicit role rules still win.
 
@@ -113,7 +113,7 @@ Create `~/.config/agent-office/skills.json`. Like the role override it works per
 Sub-agents of the same type in one session are one recurring employee, not a new figure per run. A `reviewer` that was started five times is one persona with five runs; the tooltip shows its role, "5th run" and up to three recent tasks. If two instances of a type run at the same time, the second one shows up as a colleague named `reviewer 2` (and so on). Personas never span sessions, so two worktrees have separate teams.
 
 - An employee who was done or idle and starts working again stretches and picks up a coffee before sitting down.
-- An instance that has not written anything for more than 2 minutes counts as ended (crashed or aborted); otherwise a dead sub-agent would block its slot forever. Short pauses under 2 minutes still count as the same running agent.
+- An instance that has not written anything for more than 30 minutes counts as ended (crashed or aborted); otherwise a dead sub-agent would block its slot forever. Pauses under 30 minutes still count as the same running agent: it keeps its own figure and shows as idle, not done.
 - A persona goes home after its last run has been finished for 30 minutes.
 
 ## Optional: Laya classifier
