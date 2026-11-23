@@ -72,9 +72,11 @@ function spawnLaya(): ChildProcess | null {
     console.error('uv nicht gefunden. Installieren mit:\n  brew install uv\n  curl -LsSf https://astral.sh/uv/install.sh | sh');
     return null;
   }
-  return spawn('uvx', ['--from', 'laya[serve]', 'laya-serve'], {
+  const child = spawn('uvx', ['--from', 'laya[serve]', 'laya-serve'], {
     stdio: 'inherit', env: { ...process.env, LAYA_PRELOAD: '1' },
   });
+  child.on('error', (e) => console.error(`Laya konnte nicht gestartet werden (${e.message}) – agent-office läuft ohne weiter.`));
+  return child;
 }
 
 function openBrowser(url: string): void {
@@ -102,6 +104,7 @@ async function serve(args: CliArgs): Promise<void> {
   let current: Snapshot = { generatedAt: Date.now(), floors: [] };
   const cleanups: Array<() => void | Promise<void>> = [];
   let rebuild: () => Promise<Snapshot>;
+  let layaReady: Promise<void> = Promise.resolve();
 
   if (args.demo) {
     let tick = 0;
@@ -112,7 +115,9 @@ async function serve(args: CliArgs): Promise<void> {
     const classifier = new RoleClassifier(
       loadRoleConfig(), gated, DEFAULT_CACHE_PATH, process.env.LAYA_THRESHOLD && Number.isFinite(threshold) ? threshold : 0.5,
     );
-    cleanups.push(startLayaProbe(gated), () => classifier.flush());
+    const probe = startLayaProbe(gated);
+    layaReady = probe.ready;
+    cleanups.push(probe.stop, () => classifier.flush());
     const floorOrder = new Map<string, number>();
     const recent: RecentRooms = new Map();
     rebuild = () => buildSnapshot({ claudeHome: args.claudeHome, roles: classifier, floorOrder, recent, events });
@@ -123,14 +128,7 @@ async function serve(args: CliArgs): Promise<void> {
     webDir: resolveWebDir(),
     getSnapshot: () => current,
     events,
-    onEvent: () => {},
-  });
-  events.onChange(() => {
-    try {
-      poller?.trigger();
-    } catch {
-      /* never break POST /api/events */
-    }
+    onEvent: () => poller?.trigger(), // http.ts guards this call; a failure never breaks POST /api/events
   });
 
   let child: ChildProcess | null = null;
@@ -149,6 +147,7 @@ async function serve(args: CliArgs): Promise<void> {
   mkdirSync(dirname(SERVER_JSON), { recursive: true });
   writeFileSync(SERVER_JSON, JSON.stringify({ port, pid: process.pid }));
 
+  await layaReady; // first probe settles before the first poll, so early agents are not stuck as intern
   poller = startPolling({
     rebuild,
     publish: (s) => {

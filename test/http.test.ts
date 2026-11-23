@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,7 +9,9 @@ import { createServer, listen, type AppServer } from '../src/server/http.js';
 import type { RoleId } from '../src/shared/types.js';
 
 const servers: http.Server[] = [];
+const dirs: string[] = [];
 afterEach(async () => {
+  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   for (const s of servers.splice(0)) {
     s.closeAllConnections();
     await new Promise((r) => s.close(r));
@@ -19,6 +21,7 @@ afterEach(async () => {
 async function start(over: Partial<Parameters<typeof createServer>[0]> = {}) {
   const events = new EventStore();
   const webDir = mkdtempSync(join(tmpdir(), 'ao-web-'));
+  dirs.push(webDir);
   const snap = demoSnapshot(1_000_000, 0);
   const server = createServer({ webDir, getSnapshot: () => snap, events, onEvent: () => {}, ...over });
   servers.push(server);
@@ -121,6 +124,29 @@ describe('http', () => {
     const { port } = await start();
     const other = createServer({ webDir: '.', getSnapshot: () => demoSnapshot(0, 0), events: new EventStore(), onEvent: () => {} });
     await expect(listen(other, port)).rejects.toMatchObject({ code: 'EADDRINUSE' });
+  });
+});
+
+describe('host/origin restrictions', () => {
+  const raw = (port: number, path: string, headers: Record<string, string>, method = 'GET') =>
+    new Promise<number>((r) => {
+      const req = http.request({ port, host: '127.0.0.1', path, method, headers }, (res) => { res.resume(); r(res.statusCode!); });
+      req.end(method === 'POST' ? '{"hook_event_name":"Stop","session_id":"s"}' : undefined);
+    });
+
+  it('rejects a foreign Host on /api/snapshot and /', async () => {
+    const { port } = await start();
+    expect(await raw(port, '/api/snapshot', { host: 'evil.example:' + port })).toBe(403);
+    expect(await raw(port, '/', { host: 'evil.example' })).toBe(403);
+    expect(await raw(port, '/api/snapshot', { host: `localhost:${port}` })).toBe(200);
+  });
+
+  it('POST origin: foreign 403, none 204, own 204', async () => {
+    const { port } = await start();
+    const h = { host: `127.0.0.1:${port}`, 'content-type': 'text/plain' };
+    expect(await raw(port, '/api/events', { ...h, origin: 'https://evil.example' }, 'POST')).toBe(403);
+    expect(await raw(port, '/api/events', h, 'POST')).toBe(204);
+    expect(await raw(port, '/api/events', { ...h, origin: `http://127.0.0.1:${port}` }, 'POST')).toBe(204);
   });
 });
 

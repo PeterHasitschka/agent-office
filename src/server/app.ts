@@ -79,12 +79,12 @@ export class GatedLaya extends LayaClient {
 }
 
 /** Probe now and every `everyMs`; returns a stop function. */
-export function startLayaProbe(laya: GatedLaya, everyMs = 60_000): () => void {
+export function startLayaProbe(laya: GatedLaya, everyMs = 60_000): { stop(): void; ready: Promise<void> } {
   const probe = async () => {
     laya.reachable = await laya.probe().catch(() => false);
   };
-  void probe();
+  const ready = probe();
   const t = setInterval(() => void probe(), everyMs);
   t.unref();
-  return () => clearInterval(t);
+  return { stop: () => clearInterval(t), ready };
 }

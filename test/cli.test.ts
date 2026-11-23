@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startPolling } from '../src/server/app.js';
+import { GatedLaya, startPolling } from '../src/server/app.js';
 import { parseArgs } from '../src/server/cli.js';
 import type { Snapshot } from '../src/shared/types.js';
 
@@ -61,5 +61,15 @@ describe('startPolling', () => {
     p.stop();
     await vi.advanceTimersByTimeAsync(20000);
     expect(calls).toBe(3);
+  });
+});
+
+describe('GatedLaya', () => {
+  it('returns null without calling fetch while unreachable', async () => {
+    const f = vi.spyOn(globalThis, 'fetch');
+    const g = new GatedLaya({ url: 'http://127.0.0.1:1' });
+    expect(await g.classify('x', { roles: {} } as any)).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+    f.mockRestore();
   });
 });

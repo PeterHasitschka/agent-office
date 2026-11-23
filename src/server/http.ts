@@ -79,6 +79,13 @@ export function createServer(opts: ServerOpts): AppServer {
 
   const server = http.createServer(async (req, res) => {
     try {
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      const hosts = [`127.0.0.1:${port}`, `localhost:${port}`];
+      if (!req.headers.host || !hosts.includes(req.headers.host)) {
+        res.writeHead(403).end('forbidden host');
+        return;
+      }
       const url = new URL(req.url ?? '/', 'http://localhost');
       if (req.method === 'GET' && url.pathname === '/api/snapshot') {
         res.writeHead(200, { 'content-type': TYPES['.json'], 'cache-control': 'no-store' }).end(JSON.stringify(opts.getSnapshot()));
@@ -90,6 +97,11 @@ export function createServer(opts: ServerOpts): AppServer {
         clients.add(res);
         res.on('close', () => clients.delete(res));
       } else if (req.method === 'POST' && url.pathname === '/api/events') {
+        const origin = req.headers.origin;
+        if (origin !== undefined && !hosts.some((h) => origin === `http://${h}`)) {
+          res.writeHead(403).end('forbidden origin');
+          return;
+        }
         const body = await readBody(req);
         if (body === null) {
           if (!res.writableEnded) res.writeHead(413).end();
