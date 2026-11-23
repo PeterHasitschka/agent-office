@@ -83,18 +83,6 @@
           }
         ]
       }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/send-event.sh\"",
-            "async": true,
-            "timeout": 2
-          }
-        ]
-      }
     ]
   }
 }

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -43,10 +43,10 @@ async function stub() {
   return { got, port: (s.address() as AddressInfo).port };
 }
 
-function run(input: string, env: Record<string, string>) {
+function run(input: string, env: Record<string, string>, pathOverride?: string) {
   return new Promise<{ code: number | null; out: string; err: string; ms: number }>((res) => {
     const t0 = Date.now();
-    const p = spawn('/bin/sh', [script], { env: { PATH: process.env.PATH ?? '', ...env } });
+    const p = spawn('/bin/sh', [script], { env: { PATH: pathOverride ?? process.env.PATH ?? '', ...env } });
     let out = '';
     let err = '';
     p.stdout.on('data', (d) => (out += d));
@@ -68,12 +68,21 @@ describe('send-event.sh', () => {
     expect(got[0].ct).toBe('application/json');
   });
 
-  it('reads the port from server.json (sed fallback without jq output dependence)', async () => {
+  it('reads the port from server.json via the sed branch when jq is not installed', async () => {
     const { got, port } = await stub();
     const home = tmp();
     mkdirSync(join(home, '.config/agent-office'), { recursive: true });
     writeFileSync(join(home, '.config/agent-office/server.json'), `{"port":${port},"pid":123}`);
-    const r = await run('{"a":1}', { HOME: home });
+    // PATH with only the tools the script needs, deliberately without jq
+    const bin = join(tmp(), 'bin');
+    mkdirSync(bin);
+    for (const tool of ['sh', 'curl', 'sed', 'head', 'cat']) {
+      const found = (process.env.PATH ?? '').split(':').map((d) => join(d, tool)).find((p) => existsSync(p));
+      if (!found) throw new Error(`${tool} not found on PATH`);
+      symlinkSync(found, join(bin, tool));
+    }
+    expect(existsSync(join(bin, 'jq'))).toBe(false);
+    const r = await run('{"a":1}', { HOME: home }, bin);
     expect(r).toMatchObject({ code: 0, out: '', err: '' });
     expect(got.map((g) => g.body)).toEqual(['{"a":1}']);
   });
@@ -103,6 +112,9 @@ describe('plugin manifests', () => {
     for (const e of ['SessionStart', 'SessionEnd', 'UserPromptSubmit', 'PreToolUse', 'Stop', 'Notification', 'SubagentStop']) {
       expect(hooks[e], e).toBeDefined();
     }
+    expect(Object.keys(hooks).sort()).toEqual(
+      ['Notification', 'PreToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStop', 'UserPromptSubmit'],
+    );
     for (const groups of Object.values<any[]>(hooks)) {
       for (const g of groups) {
         for (const h of g.hooks) {
