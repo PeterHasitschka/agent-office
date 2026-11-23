@@ -1,9 +1,11 @@
 import { basename, join } from 'node:path';
-import type { Agent, Floor, RoleId, Room, Snapshot, Status } from '../shared/types.js';
+import type { ActiveSkill, Agent, Floor, RoleId, Room, SkillCategory, Snapshot, Status } from '../shared/types.js';
 import type { EventStore } from './events.js';
 import { defaultProbe, listLiveSessions, type LiveSession, type ProcessProbe } from './discovery/processes.js';
 import { resolveRepo } from './discovery/repo.js';
-import { listSubagents } from './discovery/subagents.js';
+import { lastSkillUse, parseSkillListing, type SkillUse } from './discovery/skills.js';
+import { listSubagentInstances } from './discovery/subagents.js';
+import { buildPersonas } from './personas.js';
 import { findTranscript, leadStatusDetail, transcriptForSession, sessionTitle, SPAWN_TOOLS, WAITING_TOOLS } from './discovery/transcript.js';
 import { cwdToSlug } from './util/slug.js';
 import { tailJsonl } from './util/tail.js';
@@ -12,19 +14,52 @@ export interface RoleSource {
   roleFor(agentType: string, description: string): RoleId;
 }
 
+export interface SkillSource {
+  categoryFor(name: string, description: string): SkillCategory;
+}
+
+/** persona id -> category of its last seen skill use (role hint for personas whose tail is not read). */
+export type LastSkills = Map<string, SkillCategory>;
+
 export type RecentRooms = Map<string, { room: Room; floor: { id: string; label: string }; endedAt: number }>;
 
 export interface SnapshotDeps {
   claudeHome: string;
   probe?: ProcessProbe;
   roles: RoleSource;
+  skills: SkillSource;
+  ignoreCommands: ReadonlySet<string>;
   now?: number;
   floorOrder: Map<string, number>;
   recent?: RecentRooms;
   events?: EventStore;
+  lastSkills?: LastSkills;
 }
 
 const KEEP_ENDED_MS = 30 * 60_000;
+const SKILL_ACTIVE_MS = 15 * 60_000;
+const LAST_SKILLS_CAP = 1000;
+
+/** §5.6: category of an active or last-used skill -> role for otherwise unclassified (intern) sub-agents. */
+const SKILL_ROLE_HINT: Partial<Record<SkillCategory, RoleId>> = {
+  ideas: 'strategist', planning: 'strategist', debugging: 'doctor', review: 'critic', testing: 'lab',
+  git: 'poet', writing: 'poet', design: 'artist', running: 'janitor',
+};
+
+function rememberSkill(map: LastSkills, id: string, category: SkillCategory): void {
+  map.delete(id);
+  map.set(id, category);
+  if (map.size > LAST_SKILLS_CAP) map.delete(map.keys().next().value!);
+}
+
+/** Active only while the agent works (`statuses`) and the use is < 15 min old; classifies only then. */
+function activeSkillOf(
+  use: SkillUse | null, status: Status, statuses: readonly Status[], now: number,
+  categoryOf: (use: SkillUse) => SkillCategory,
+): ActiveSkill | undefined {
+  if (!use || !statuses.includes(status) || now - use.at >= SKILL_ACTIVE_MS) return undefined;
+  return { name: use.name, category: categoryOf(use), since: use.at };
+}
 
 interface Built {
   room: Room;
@@ -75,6 +110,7 @@ async function resolveTranscripts(
 export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
   const now = deps.now ?? Date.now();
   const recent: RecentRooms = deps.recent ?? new Map();
+  const lastSkills: LastSkills = deps.lastSkills ?? new Map();
   const sessions = await listLiveSessions(deps.claudeHome, deps.probe ?? defaultProbe);
   const transcripts = await resolveTranscripts(deps.claudeHome, sessions);
 
@@ -96,8 +132,12 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
           let lastActivityAt = startedAt;
           let transcriptMtime = 0;
           let openTools: string[] = [];
+          let leadSkill: SkillUse | null = null;
+          let descriptions = new Map<string, string>();
           if (tr) {
             const { entries, mtimeMs } = await tailJsonl(tr.path);
+            leadSkill = lastSkillUse(entries, deps.ignoreCommands);
+            descriptions = parseSkillListing(entries);
             const d = leadStatusDetail(entries, mtimeMs, now);
             status = d.status;
             openTools = d.openTools;
@@ -106,13 +146,13 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
             transcriptMtime = mtimeMs;
           }
 
-          const subs = tr
-            ? await listSubagents(join(deps.claudeHome, 'projects', cwdToSlug(cwd), tr.sessionId), now)
-            : [];
+          const sessionDir = tr ? join(deps.claudeHome, 'projects', cwdToSlug(cwd), tr.sessionId) : null;
+          const personas = sessionDir ? buildPersonas(await listSubagentInstances(sessionDir), leadId, now) : [];
+          const categoryOf = (use: SkillUse) => deps.skills.categoryFor(use.name, descriptions.get(use.name) ?? '');
 
           if (
             status === 'waiting' &&
-            (subs.some((x) => x.status === 'busy') ||
+            (personas.some((x) => x.status === 'busy') ||
               (!openTools.some((t) => WAITING_TOOLS.has(t)) && openTools.some((t) => SPAWN_TOOLS.has(t))))
           ) {
             status = 'busy';
@@ -122,18 +162,40 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
           const eventId = tr?.sessionId ?? s.sessionId;
           if (eventId && deps.events) status = deps.events.overrideFor(eventId, transcriptMtime) ?? status;
 
+          const leadActive = activeSkillOf(leadSkill, status, ['busy', 'waiting'], now, categoryOf);
           const lead: Agent = {
             id: leadId, kind: 'lead', name, description: `Session in ${cwd}`, role: 'lead',
             status, startedAt, lastActivityAt,
+            ...(leadActive ? { activeSkill: leadActive } : {}),
           };
           const agents: Agent[] = [lead];
-          for (const sub of subs) {
+          for (const p of personas) {
+            const description = p.current.description;
+            // Only busy personas can have an active skill, so only their tails are read.
+            let active: ActiveSkill | undefined;
+            if (p.status === 'busy' && sessionDir) {
+              const { entries } = await tailJsonl(join(sessionDir, 'subagents', `agent-${p.current.id}.jsonl`))
+                .catch(() => ({ entries: [] as unknown[] }));
+              const use = lastSkillUse(entries, deps.ignoreCommands);
+              if (use) {
+                const category = categoryOf(use);
+                rememberSkill(lastSkills, p.id, category);
+                active = activeSkillOf(use, p.status, ['busy'], now, () => category);
+              }
+            }
+            let role = deps.roles.roleFor(p.agentType, description);
+            if (role === 'intern') {
+              const hint = active?.category ?? lastSkills.get(p.id);
+              role = (hint && SKILL_ROLE_HINT[hint]) || role;
+            }
             agents.push({
-              id: sub.id, kind: 'sub', name: sub.agentType, description: sub.description,
-              role: deps.roles.roleFor(sub.agentType, sub.description), status: sub.status,
-              startedAt: sub.startedAt, lastActivityAt: sub.lastActivityAt,
-              ...(sub.finishedAt !== undefined ? { finishedAt: sub.finishedAt } : {}),
+              id: p.id, kind: 'sub', name: p.slot > 0 ? `${p.agentType} ${p.slot + 1}` : p.agentType,
+              description, role, status: p.status,
+              startedAt: p.startedAt, lastActivityAt: p.lastActivityAt,
+              ...(p.finishedAt !== undefined ? { finishedAt: p.finishedAt } : {}),
               parentId: leadId,
+              ...(active ? { activeSkill: active } : {}),
+              runs: p.runs, recentTasks: p.recentTasks,
             });
           }
           const room: Room = { id: cwd, label: roomLabel, cwd, ...(repo.branch ? { branch: repo.branch } : {}), agents };

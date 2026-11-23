@@ -188,6 +188,31 @@ describe('demoSnapshot', () => {
     expect(extra(6).role).toBe('intern');
     expect(extra(10).role).not.toBe('intern');
   });
+  it('has a SKILLS corner on one floor: >= 5 users, >= 3 skills, a lead among them, rule-consistent statuses', () => {
+    const s = demoSnapshot(1_000_000, 0);
+    const best = s.floors
+      .map((f) => f.rooms.flatMap((r) => r.agents).filter((a) => a.activeSkill))
+      .sort((a, b) => b.length - a.length)[0];
+    expect(best.length).toBeGreaterThanOrEqual(5);
+    expect(new Set(best.map((a) => a.activeSkill!.name)).size).toBeGreaterThanOrEqual(3);
+    expect(best.some((a) => a.kind === 'lead')).toBe(true);
+    for (let t = 0; t < 24; t++) for (const a of all(t)) {
+      if (!a.activeSkill) continue;
+      expect(a.kind === 'lead' ? ['busy', 'waiting'] : ['busy']).toContain(a.status);
+    }
+  });
+  it('a staff persona with runs >= 4 cycles done -> busy every ~6 ticks; a parallel "<type> 2" colleague', () => {
+    const p = (t: number) => all(t).find((a) => (a.runs ?? 0) >= 4)!;
+    expect(p).toBeTruthy();
+    expect(p(0).status).toBe('done');
+    expect(p(6)).toMatchObject({ id: p(0).id, status: 'busy' });
+    expect(p(6).runs).toBe(p(0).runs! + 1);
+    expect(p(12).status).toBe('done');
+    expect(p(6).recentTasks!.length).toBe(3);
+    const subs = all(0).filter((a) => a.kind === 'sub');
+    expect(subs.every((a) => a.runs !== undefined && a.recentTasks !== undefined)).toBe(true);
+    expect(subs.some((a) => / 2$/.test(a.name) && subs.some((b) => b.name === a.name.slice(0, -2) && b.parentId === a.parentId))).toBe(true);
+  });
   it('adds and removes a sub-agent over time', () => {
     expect(all(6).length).toBe(all(0).length + 1);
     expect(all(12).length).toBe(all(0).length);

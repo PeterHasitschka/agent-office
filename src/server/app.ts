@@ -76,6 +76,11 @@ export class GatedLaya extends LayaClient {
   override async classify(text: string, cfg: RoleConfig): Promise<{ role: RoleId; confidence: number } | null> {
     return this.reachable ? super.classify(text, cfg) : null;
   }
+  override async classifyChoice(
+    text: string, options: Record<string, string>, question?: string,
+  ): Promise<{ choice: string; confidence: number } | null> {
+    return this.reachable ? super.classifyChoice(text, options, question) : null;
+  }
 }
 
 /** Probe now and every `everyMs`; returns a stop function. */

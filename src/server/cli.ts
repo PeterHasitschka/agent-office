@@ -7,10 +7,12 @@ import type { Snapshot } from '../shared/types.js';
 import { GatedLaya, layaUrl, startLayaProbe, startPolling } from './app.js';
 import { DEFAULT_CACHE_PATH, RoleClassifier } from './classify/index.js';
 import { loadRoleConfig } from './classify/rules.js';
+import { DEFAULT_SKILL_CACHE_PATH, loadSkillConfig, SkillClassifier } from './classify/skills.js';
+import { loadIgnoreCommands } from './discovery/skills.js';
 import { demoSnapshot } from './demo.js';
 import { EventStore } from './events.js';
 import { createServer, listen } from './http.js';
-import { buildSnapshot, type RecentRooms } from './snapshot.js';
+import { buildSnapshot, type LastSkills, type RecentRooms } from './snapshot.js';
 
 export interface CliArgs {
   cmd: 'serve' | 'laya' | 'plugin';
@@ -114,19 +116,23 @@ async function serve(args: CliArgs): Promise<void> {
   } else {
     const url = layaUrl(args.withLaya, process.env);
     const gated = url ? new GatedLaya({ url, model: process.env.LAYA_MODEL || undefined }) : null;
-    const threshold = Number(process.env.LAYA_THRESHOLD);
-    const classifier = new RoleClassifier(
-      loadRoleConfig(), gated, DEFAULT_CACHE_PATH, process.env.LAYA_THRESHOLD && Number.isFinite(threshold) ? threshold : 0.5,
-    );
+    const parsed = Number(process.env.LAYA_THRESHOLD);
+    const threshold = process.env.LAYA_THRESHOLD && Number.isFinite(parsed) ? parsed : 0.5;
+    // Both classifiers share the one (gated) Laya client; null when Laya is off.
+    const classifier = new RoleClassifier(loadRoleConfig(), gated, DEFAULT_CACHE_PATH, threshold);
+    const skills = new SkillClassifier(loadSkillConfig(), gated, DEFAULT_SKILL_CACHE_PATH, threshold);
+    const ignoreCommands = loadIgnoreCommands();
     if (gated) {
       const probe = startLayaProbe(gated);
       layaReady = probe.ready;
       cleanups.push(probe.stop);
     }
-    cleanups.push(() => classifier.flush());
+    cleanups.push(() => classifier.flush(), () => skills.flush());
     const floorOrder = new Map<string, number>();
     const recent: RecentRooms = new Map();
-    rebuild = () => buildSnapshot({ claudeHome: args.claudeHome, roles: classifier, floorOrder, recent, events });
+    const lastSkills: LastSkills = new Map();
+    rebuild = () =>
+      buildSnapshot({ claudeHome: args.claudeHome, roles: classifier, skills, ignoreCommands, floorOrder, recent, lastSkills, events });
   }
 
   let poller: ReturnType<typeof startPolling> | null = null;

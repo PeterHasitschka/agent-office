@@ -9,8 +9,17 @@ import { resolveRepo } from '../src/server/discovery/repo';
 import { leadStatusDetail } from '../src/server/discovery/transcript';
 import { cwdToSlug } from '../src/server/util/slug';
 import type { ProcessProbe } from '../src/server/discovery/processes';
+import { loadIgnoreCommands } from '../src/server/discovery/skills';
+import type { SkillCategory } from '../src/shared/types';
 
 const roles: RoleSource = { roleFor: () => 'builder' };
+const skillCalls: Array<[string, string]> = [];
+const skills = {
+  categoryFor(name: string, description: string): SkillCategory {
+    skillCalls.push([name, description]);
+    return name.includes('debug') ? 'debugging' : name.includes('review') ? 'review' : 'other';
+  },
+};
 const base = mkdtempSync(join(tmpdir(), 'ao-snap-'));
 const sh = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' });
 
@@ -49,7 +58,7 @@ function home(sessions: Record<number, string>, metas: Record<number, object> = 
   return { h, probe };
 }
 const opts = (h: string, probe: ProcessProbe, extra = {}) => ({
-  claudeHome: h, probe, roles, floorOrder: new Map<string, number>(), ...extra,
+  claudeHome: h, probe, roles, skills, ignoreCommands: new Set<string>(['clear']), floorOrder: new Map<string, number>(), ...extra,
 });
 
 describe('resolveRepo', () => {
@@ -294,6 +303,136 @@ describe('buildSnapshot', () => {
       expect(agents[0].status).toBe('busy');
       expect(agents[1]).toMatchObject({ kind: 'sub', name: 'worker', role: 'builder', parentId: 'sess-1', status: 'busy' });
     });
+  });
+});
+
+describe('active skills and staff personas', () => {
+  const NOW = Date.now();
+  const iso = (agoMs: number) => new Date(NOW - agoMs).toISOString();
+  const skillUse = (skill: string, agoMs: number) => ({
+    type: 'assistant', timestamp: iso(agoMs),
+    message: { id: `m-${skill}-${agoMs}`, role: 'assistant', content: [{ type: 'tool_use', id: `t-${agoMs}`, name: 'Skill', input: { skill } }] },
+  });
+  const command = (name: string, agoMs: number) => ({
+    type: 'user', timestamp: iso(agoMs), message: { role: 'user', content: `<command-name>/${name}</command-name>` },
+  });
+  const listing = (content: string) => ({ type: 'attachment', attachment: { type: 'skill_listing', content } });
+
+  /** Lead transcript `sess-1` in `plain` + optional sub-agent instances. */
+  function setup(lead: unknown[], subs: Array<{ id: string; type: string; desc?: string; lines?: unknown[]; agoMs?: number; finished?: boolean }> = []) {
+    const { h, probe } = home({ 1: plain }, { 1: { sessionId: 'sess-1' } });
+    const dir = join(h, 'projects', cwdToSlug(plain));
+    mkdirSync(join(dir, 'sess-1', 'subagents'), { recursive: true });
+    const p = join(dir, 'sess-1.jsonl');
+    writeFileSync(p, lead.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const old = new Date(NOW - 120_000);
+    utimesSync(p, old, old);
+    const sd = join(dir, 'sess-1', 'subagents');
+    for (const x of subs) {
+      writeFileSync(join(sd, `agent-${x.id}.meta.json`), JSON.stringify({ agentType: x.type, description: x.desc ?? x.id, ...(x.finished ? { finished: true } : {}) }));
+      const jp = join(sd, `agent-${x.id}.jsonl`);
+      writeFileSync(jp, (x.lines ?? [{}]).map((l) => JSON.stringify(l)).join('\n') + '\n');
+      if (x.agoMs !== undefined) {
+        const t = new Date(NOW - x.agoMs);
+        utimesSync(jp, t, t);
+      }
+    }
+    return { h, probe, sd };
+  }
+  const busy = () => {
+    const events = new EventStore();
+    events.ingest({ hook_event_name: 'UserPromptSubmit', session_id: 'sess-1' }, NOW);
+    return events;
+  };
+  const agentsOf = async (h: string, probe: ProcessProbe, extra = {}) =>
+    (await buildSnapshot(opts(h, probe, { now: NOW, ...extra }))).floors[0].rooms[0].agents;
+
+  it('busy lead with a recent Skill tool_use has activeSkill with category and listing description', async () => {
+    skillCalls.length = 0;
+    const { h, probe } = setup([listing('- acme:debug-hunt: Hunts bugs down'), skillUse('acme:debug-hunt', 60_000)]);
+    const [lead] = await agentsOf(h, probe, { events: busy() });
+    expect(lead.status).toBe('busy');
+    expect(lead.activeSkill).toEqual({ name: 'acme:debug-hunt', category: 'debugging', since: NOW - 60_000 });
+    expect(skillCalls).toContainEqual(['acme:debug-hunt', 'Hunts bugs down']);
+  });
+
+  it('slash command counts as the lead skill', async () => {
+    const { h, probe } = setup([skillUse('acme:debug-hunt', 120_000), command('my-review', 30_000)]);
+    const [lead] = await agentsOf(h, probe, { events: busy() });
+    expect(lead.activeSkill).toMatchObject({ name: 'my-review', category: 'review', since: NOW - 30_000 });
+  });
+
+  it('idle lead has no activeSkill', async () => {
+    const { h, probe } = setup([skillUse('acme:debug-hunt', 60_000)]);
+    const events = new EventStore();
+    events.ingest({ hook_event_name: 'Stop', session_id: 'sess-1' }, NOW);
+    const [lead] = await agentsOf(h, probe, { events });
+    expect(lead.status).toBe('idle');
+    expect(lead.activeSkill).toBeUndefined();
+  });
+
+  it('skill use 16 min old is no longer active', async () => {
+    const { h, probe } = setup([skillUse('acme:debug-hunt', 16 * 60_000)]);
+    const [lead] = await agentsOf(h, probe, { events: busy() });
+    expect(lead.activeSkill).toBeUndefined();
+  });
+
+  it('built-in /rename is ignored (roles/skills.json list)', async () => {
+    const ignore = loadIgnoreCommands(join(base, 'no-override.json'));
+    expect(ignore.has('rename')).toBe(true);
+    const { h, probe } = setup([command('rename', 30_000)]);
+    const [lead] = await agentsOf(h, probe, { events: busy(), ignoreCommands: ignore });
+    expect(lead.activeSkill).toBeUndefined();
+  });
+
+  it('sub-agents are personas with stable ids, runs, recentTasks and "<type> 2" for parallel slots', async () => {
+    const { h, probe } = setup([], [
+      { id: 'a', type: 'worker', desc: 'first job', agoMs: 20 * 60_000, finished: true },
+      { id: 'b', type: 'worker', desc: 'second job' },
+      { id: 'c', type: 'worker', desc: 'parallel job' },
+    ]);
+    const floorOrder = new Map<string, number>();
+    const s1 = await agentsOf(h, probe, { floorOrder });
+    const s2 = await agentsOf(h, probe, { floorOrder });
+    const subs = (a: typeof s1) => a.filter((x) => x.kind === 'sub');
+    expect(subs(s1).map((x) => x.id)).toEqual(subs(s2).map((x) => x.id));
+    expect(subs(s1).map((x) => x.id).sort()).toEqual(['sess-1:worker:0', 'sess-1:worker:1']);
+    const p0 = subs(s1).find((x) => x.id === 'sess-1:worker:0')!;
+    const p1 = subs(s1).find((x) => x.id === 'sess-1:worker:1')!;
+    expect(p0).toMatchObject({ name: 'worker', runs: 2, parentId: 'sess-1', status: 'busy', role: 'builder' });
+    expect(p0.recentTasks).toHaveLength(2);
+    expect(p0.recentTasks).toContain('first job');
+    expect(p0.description).toBe(p0.recentTasks![0]);
+    expect(p1).toMatchObject({ name: 'worker 2', runs: 1 });
+  });
+
+  it('busy persona takes its skill from its own jsonl; intern role gets the category hint (also later when idle)', async () => {
+    const internRoles: RoleSource = { roleFor: (t) => (t === 'helper' ? 'intern' : 'builder') };
+    const lastSkills = new Map();
+    const lines = [skillUse('acme:debug-hunt', 30_000)];
+    const a = setup([], [{ id: 'x', type: 'helper', lines }]);
+    const [, p] = await agentsOf(a.h, a.probe, { roles: internRoles, lastSkills });
+    expect(p).toMatchObject({ status: 'busy', role: 'doctor', activeSkill: { name: 'acme:debug-hunt', category: 'debugging' } });
+
+    const b = setup([], [{ id: 'x', type: 'helper', lines, agoMs: 60_000 }]);
+    const [, q] = await agentsOf(b.h, b.probe, { roles: internRoles, lastSkills });
+    expect(q.status).toBe('idle');
+    expect(q.activeSkill).toBeUndefined();
+    expect(q.role).toBe('doctor');
+
+    const [, r] = await agentsOf(b.h, b.probe, { roles: internRoles, lastSkills: new Map() });
+    expect(r.role).toBe('intern');
+  });
+
+  it('explicit role beats the skill hint; category "other" gives no hint', async () => {
+    const internRoles: RoleSource = { roleFor: (t) => (t === 'helper' ? 'intern' : 'critic') };
+    const a = setup([], [
+      { id: 'x', type: 'checker', lines: [skillUse('acme:debug-hunt', 30_000)] },
+      { id: 'y', type: 'helper', lines: [skillUse('acme:brew', 30_000)] },
+    ]);
+    const agents = await agentsOf(a.h, a.probe, { roles: internRoles });
+    expect(agents.find((x) => x.name === 'checker')!.role).toBe('critic');
+    expect(agents.find((x) => x.name === 'helper')).toMatchObject({ role: 'intern', activeSkill: { name: 'acme:brew', category: 'other' } });
   });
 });
 

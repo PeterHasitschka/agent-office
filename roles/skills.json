@@ -36,7 +36,12 @@
     "rewind",
     "release-notes",
     "upgrade",
-    "usage"
+    "usage",
+    "rename",
+    "statusline",
+    "output-style",
+    "privacy-settings",
+    "install-github-app"
   ],
   "categories": {
     "ideas": {

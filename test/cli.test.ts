@@ -69,6 +69,7 @@ describe('GatedLaya', () => {
     const f = vi.spyOn(globalThis, 'fetch');
     const g = new GatedLaya({ url: 'http://127.0.0.1:1' });
     expect(await g.classify('x', { roles: {} } as any)).toBeNull();
+    expect(await g.classifyChoice('x', { a: 'A' })).toBeNull();
     expect(f).not.toHaveBeenCalled();
     f.mockRestore();
   });

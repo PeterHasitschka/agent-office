@@ -15,7 +15,6 @@ export interface SkillCategoryDef {
 export interface SkillConfig {
   /** in table order (first match wins) */
   categories: Record<SkillCategory, SkillCategoryDef>;
-  ignoreCommands: string[];
 }
 
 export const DEFAULT_SKILL_CACHE_PATH = join(homedir(), '.cache', 'agent-office', 'skills.json');
@@ -38,7 +37,6 @@ function readJson(p: string): unknown {
 export function loadSkillConfig(userOverridePath: string = SKILL_OVERRIDE_PATH): SkillConfig {
   const base = JSON.parse(readFileSync(skillDefaultsPath(), 'utf8')) as SkillConfig;
   const categories = { ...base.categories };
-  const ignore = [...(base.ignoreCommands ?? [])];
   const over = readJson(userOverridePath);
   if (isObj(over)) {
     if (isObj(over.categories)) {
@@ -52,9 +50,8 @@ export function loadSkillConfig(userOverridePath: string = SKILL_OVERRIDE_PATH):
         categories[k] = next;
       }
     }
-    if (isStrArr(over.ignoreCommands)) ignore.push(...over.ignoreCommands);
   }
-  return { categories, ignoreCommands: ignore };
+  return { categories };
 }
 
 const compiledCache = new WeakMap<SkillConfig, CompiledRules<SkillCategory>>();
