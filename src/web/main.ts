@@ -14,7 +14,7 @@ const banner = document.getElementById('offline');
 
 function apply(s: Snapshot): void {
   const shown = display.update(s, Date.now());
-  const next = layoutBuilding(shown, { machines: display.machines(), agentOrder: display.order() });
+  const next = layoutBuilding(shown, { machines: display.machines(), spotIndex: display.spotIndex() });
   scene.update(shown, next);
   layout = next; // only after the scene accepted it, so both stay in sync
 }

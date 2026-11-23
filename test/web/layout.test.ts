@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Room, Snapshot } from '../../src/shared/types.js';
 import {
-  layoutBuilding, truncateLabel, BASE_FLOOR_H, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W, MACHINE_W, MACHINE_H,
+  layoutBuilding, truncateLabel, type Rect, BASE_FLOOR_H, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W, MACHINE_W, MACHINE_H,
 } from '../../src/web/layout.js';
 import { SPRITE_W, SPRITE_H, HEADROOM, PROP_W } from '../../src/web/sprites.js';
 
@@ -107,7 +107,7 @@ describe('layoutBuilding skills room', () => {
     expect(sr.machines).toHaveLength(5);
     expect(sr.rect.x + sr.rect.w).toBeLessThanOrEqual(l.width);
     expect(sr.rect.y + sr.rect.h).toBeLessThanOrEqual(f.rect.y + f.rect.h);
-    const boxes: Rect4[] = [];
+    const boxes: Rect[] = [];
     for (const m of sr.machines) {
       boxes.push({ x: m.x, y: m.y, w: MACHINE_W, h: MACHINE_H });
       expect(m.spots.length).toBeGreaterThanOrEqual(4);
@@ -140,22 +140,14 @@ describe('layoutBuilding skills room', () => {
     for (let i = 0; i < 11; i++) expect(l.spotFor(`u${i}`)).not.toBeNull();
   });
 
-  it('spot assignment follows first-seen order and is stable when a newcomer joins', () => {
-    const order = new Map([['u0', 0], ['u1', 1], ['u2', 2]]);
+  it('places users at their given spot index and grows rows with the highest index', () => {
     const m = machinesFor(['x']);
-    // spots relative to the skill room (the desk room before it widens with more agents)
-    const rel = (l: ReturnType<typeof layoutBuilding>, id: string) => {
-      const p = l.spotFor(id)!, r = l.floors[0].skillRoom!.rect;
-      return { x: p.x - r.x, y: p.y - r.y };
-    };
-    const before = layoutBuilding(skillSnap(['x', 'x']), { machines: m, agentOrder: order });
-    const after = layoutBuilding(skillSnap(['x', 'x', 'x']), { machines: m, agentOrder: order });
-    expect(rel(after, 'u0')).toEqual(rel(before, 'u0'));
-    expect(rel(after, 'u1')).toEqual(rel(before, 'u1'));
-    // older first-seen user takes the earlier spot even if listed later in the snapshot
-    const rev = new Map([['u0', 5], ['u1', 1]]);
-    const l = layoutBuilding(skillSnap(['x', 'x']), { machines: m, agentOrder: rev });
-    expect(rel(l, 'u1')).toEqual(rel(before, 'u0'));
+    const l = layoutBuilding(skillSnap(['x', 'x']), { machines: m, spotIndex: new Map([['u0', 0], ['u1', 5]]) });
+    const mach = l.floors[0].skillRoom!.machines[0];
+    expect(mach.spots).toHaveLength(8);
+    expect(mach.spots[5].agentId).toBe('u1');
+    expect(l.spotFor('u1')).toEqual({ x: mach.spots[5].x, y: mach.spots[5].y });
+    const r = l.floors[0].skillRoom!.rect;
+    expect(mach.spots[5].y + SPRITE_H).toBeLessThanOrEqual(r.y + r.h);
   });
 });
-interface Rect4 { x: number; y: number; w: number; h: number }

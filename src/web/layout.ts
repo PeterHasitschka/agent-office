@@ -53,30 +53,36 @@ const rowsFor = (n: number) => Math.max(1, Math.ceil(n / MAX_COLS));
 export function layoutBuilding(s: Snapshot, opts: {
   minWidth?: number;
   machines?: Map<string, { name: string; category: SkillCategory }[]>;
-  /** first-seen order of agents (DisplayState.order()); decides who gets which standing spot. Default: snapshot order. */
-  agentOrder?: Map<string, number>;
+  /** stable standing-spot index per agent (DisplayState.spotIndex()). Agents without one take the lowest free index in snapshot order. */
+  spotIndex?: Map<string, number>;
 } = {}): BuildingLayout {
   // Pass 1: widths and heights (independent of absolute position).
   const widthOf = (n: number) => Math.max(ROOM_MIN_W, 8 + Math.min(n, MAX_COLS) * DESK_PITCH);
   const machinesOf = (floorId: string) => opts.machines?.get(floorId) ?? [];
-  // Users per machine (by skill name), ordered by first-seen order; ties/unknown fall back to snapshot order.
+  // Users per machine (by skill name) as spot-index -> agentId.
   const usersOf = s.floors.map(f => {
-    const byName = new Map<string, string[]>();
+    const byName = new Map<string, Map<number, string>>();
+    const pending = new Map<string, string[]>();
     for (const r of f.rooms) {
       if (r.ended) continue;
       for (const a of r.agents) {
         if (!a.activeSkill) continue;
-        const l = byName.get(a.activeSkill.name) ?? [];
-        l.push(a.id);
-        byName.set(a.activeSkill.name, l);
+        const name = a.activeSkill.name;
+        const idx = opts.spotIndex?.get(a.id);
+        const slots = byName.get(name) ?? new Map<number, string>();
+        byName.set(name, slots);
+        if (idx !== undefined && !slots.has(idx)) slots.set(idx, a.id);
+        else pending.set(name, [...(pending.get(name) ?? []), a.id]);
       }
     }
-    const ord = (id: string) => opts.agentOrder?.get(id) ?? Infinity;
-    for (const l of byName.values()) l.sort((x, y) => ord(x) - ord(y)); // stable: ties keep snapshot order
+    for (const [name, ids] of pending) {
+      const slots = byName.get(name)!;
+      for (const id of ids) { let i = 0; while (slots.has(i)) i++; slots.set(i, id); }
+    }
     return byName;
   });
   const machineRows = (fi: number, name: string) =>
-    Math.max(1, Math.ceil((usersOf[fi].get(name)?.length ?? 0) / SPOTS_PER_ROW));
+    Math.max(1, Math.ceil((Math.max(-1, ...(usersOf[fi].get(name)?.keys() ?? [])) + 1) / SPOTS_PER_ROW));
   const skillRoomW = (fi: number) => {
     const n = machinesOf(s.floors[fi].id).length;
     return n === 0 ? 0 : Math.max(ROOM_MIN_W, 2 * ROOM_PAD + n * MACHINE_PITCH);
@@ -136,10 +142,10 @@ export function layoutBuilding(s: Snapshot, opts: {
             slots.push({ agentId: '', x: mx + MACHINE_W + c * SPRITE_W, y: rowTop(row) });
           }
         }
-        (usersOf[fi].get(m.name) ?? []).forEach((id, i) => {
+        for (const [i, id] of usersOf[fi].get(m.name) ?? []) {
           slots[i].agentId = id;
           spots.set(id, { x: slots[i].x, y: slots[i].y });
-        });
+        }
         return { name: m.name, category: m.category, x: mx, y: rowTop(0) + SPRITE_H - MACHINE_H, spots: slots };
       });
       skillRoom = { rect, machines };

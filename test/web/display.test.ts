@@ -54,4 +54,36 @@ describe('DisplayState', () => {
       { name: 'zeta', category: 'review' }, { name: 'alpha', category: 'git' },
     ]);
   });
+
+  describe('spotIndex', () => {
+    const two = (a?: string, b?: string, c?: string) => snap(ag('a', a), ag('b', b), ...(c ? [ag('c', c)] : []));
+    it('keeps remaining users stable when the first leaves, and reuses the freed index', () => {
+      const d = new DisplayState();
+      d.update(two('s', 's'), 0);
+      expect([d.spotIndex().get('a'), d.spotIndex().get('b')]).toEqual([0, 1]);
+      d.update(two(undefined, 's'), 1000);
+      d.update(two(undefined, 's'), 2000); // a dropped after hysteresis
+      expect(d.spotIndex().get('a')).toBeUndefined();
+      expect(d.spotIndex().get('b')).toBe(1);
+      d.update(two(undefined, 's', 's'), 3000);
+      expect(d.spotIndex().get('c')).toBe(0);
+      expect(d.spotIndex().get('b')).toBe(1);
+    });
+    it('a returning user gets the lowest free index', () => {
+      const d = new DisplayState();
+      d.update(two('s', 's'), 0);
+      d.update(two(undefined, 's'), 1000);
+      d.update(two(undefined, 's'), 2000);
+      d.update(two('s', 's'), 3000);
+      expect(d.spotIndex().get('a')).toBe(0);
+      expect(d.spotIndex().get('b')).toBe(1);
+    });
+    it('ignores agents in ended rooms for machine usage', () => {
+      const d = new DisplayState();
+      const s = snap(ag('a', 's'));
+      s.floors[0].rooms[0].ended = true;
+      d.update(s, 0);
+      expect(d.machines().get('f') ?? []).toEqual([]);
+    });
+  });
 });
