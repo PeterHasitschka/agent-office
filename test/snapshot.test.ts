@@ -110,6 +110,63 @@ describe('buildSnapshot', () => {
     expect(s2.floors.map((f) => f.label)).toEqual(['other', 'proj']);
   });
 
+  describe('same-cwd sessions', () => {
+    function twoSessions(pids: number[]) {
+      const sessions: Record<number, string> = {};
+      for (const p of pids) sessions[p] = plain;
+      const { h, probe } = home(sessions);
+      const dir = join(h, 'projects', cwdToSlug(plain));
+      mkdirSync(dir, { recursive: true });
+      for (const [sid, pid] of [['sess-a', 1], ['sess-b', 2]] as const) {
+        writeFileSync(join(dir, `${sid}.jsonl`), '{}\n');
+        const sd = join(dir, sid, 'subagents');
+        mkdirSync(sd, { recursive: true });
+        writeFileSync(join(sd, `agent-${pid}.meta.json`), JSON.stringify({ agentType: `t${pid}`, description: '' }));
+        writeFileSync(join(sd, `agent-${pid}.jsonl`), '{}\n');
+      }
+      return { h, probe };
+    };
+
+    it('merges into one room, sub-agents attributed to their own lead', async () => {
+      const { h, probe } = twoSessions([1, 2]);
+      const s = await buildSnapshot(opts(h, probe));
+      expect(s.floors).toHaveLength(1);
+      expect(s.floors[0].rooms).toHaveLength(1);
+      const agents = s.floors[0].rooms[0].agents;
+      expect(agents.filter((a) => a.kind === 'lead')).toHaveLength(2);
+      for (const sub of agents.filter((a) => a.kind === 'sub')) {
+        const lead = agents.find((a) => a.id === sub.parentId)!;
+        expect(lead.kind).toBe('lead');
+        expect(sub.name).toBe(lead.id === 'sess-a' ? 't1' : 't2');
+      }
+    });
+
+    it('one ending leaves the room live; both ending gives one ended room', async () => {
+      const recent: RecentRooms = new Map();
+      const order = new Map<string, number>();
+      const both = twoSessions([1, 2]);
+      await buildSnapshot(opts(both.h, both.probe, { recent, floorOrder: order, now: 1000 }));
+      const one = home({ 1: plain });
+      const s2 = await buildSnapshot(opts(one.h, one.probe, { recent, floorOrder: order, now: 2000 }));
+      expect(s2.floors[0].rooms).toHaveLength(1);
+      expect(s2.floors[0].rooms[0].ended).toBeUndefined();
+      expect(s2.floors[0].rooms[0].agents.filter((a) => a.kind === 'lead')).toHaveLength(1);
+      const none = home({});
+      const s3 = await buildSnapshot(opts(none.h, none.probe, { recent, floorOrder: order, now: 3000 }));
+      expect(s3.floors[0].rooms).toHaveLength(1);
+      expect(s3.floors[0].rooms[0]).toMatchObject({ ended: true, agents: [] });
+    });
+
+    it('empty ai-title falls back to room label', async () => {
+      const { h, probe } = home({ 1: plain });
+      const dir = join(h, 'projects', cwdToSlug(plain));
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 's.jsonl'), JSON.stringify({ type: 'ai-title', aiTitle: '' }) + '\n');
+      const s = await buildSnapshot(opts(h, probe));
+      expect(s.floors[0].rooms[0].agents[0].name).toBe('plain');
+    });
+  });
+
   describe('lead name and status', () => {
     const write = (lines: unknown[], sessionId = 'sess-1') => {
       const { h, probe } = home({ 1: plain });

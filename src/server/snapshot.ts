@@ -1,5 +1,4 @@
-import { join } from 'node:path';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import type { Agent, Floor, RoleId, Room, Snapshot, Status } from '../shared/types.js';
 import { defaultProbe, listLiveSessions, type ProcessProbe } from './discovery/processes.js';
 import { resolveRepo } from './discovery/repo.js';
@@ -66,7 +65,7 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
             const d = leadStatusDetail(entries, mtimeMs, now);
             status = d.status;
             openTools = d.openTools;
-            name = sessionTitle(entries) ?? roomLabel;
+            name = sessionTitle(entries) || roomLabel;
             lastActivityAt = mtimeMs || lastActivityAt;
           }
 
@@ -105,9 +104,23 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
     )
   ).filter((b): b is Built => b !== null);
 
-  const liveIds = new Set(built.map((b) => b.room.id));
-  for (const b of built) recent.set(b.room.id, { room: b.room, floor: b.floor, endedAt: 0 });
-  const all: Built[] = [...built];
+  // Several sessions in one cwd share one room; each lead keeps its own sub-agents.
+  const merged = new Map<string, Built & { groups: Agent[][] }>();
+  for (const b of built) {
+    const m = merged.get(b.room.id);
+    if (m) m.groups.push(b.room.agents);
+    else merged.set(b.room.id, { ...b, groups: [b.room.agents] });
+  }
+  const live: Built[] = [];
+  for (const m of merged.values()) {
+    for (const g of m.groups) order(deps.floorOrder, `lead:${g[0].id}`);
+    m.groups.sort((a, b) => order(deps.floorOrder, `lead:${a[0].id}`) - order(deps.floorOrder, `lead:${b[0].id}`));
+    live.push({ floor: m.floor, room: { ...m.room, agents: m.groups.flat() } });
+  }
+
+  const liveIds = new Set(live.map((b) => b.room.id));
+  for (const b of live) recent.set(b.room.id, { room: b.room, floor: b.floor, endedAt: 0 });
+  const all: Built[] = [...live];
   for (const [id, r] of [...recent]) {
     if (liveIds.has(id)) continue;
     if (r.endedAt === 0) r.endedAt = now;
