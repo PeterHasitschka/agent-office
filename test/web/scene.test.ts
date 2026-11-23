@@ -181,8 +181,8 @@ describe('Scene', () => {
 
     it('done -> busy wakes for WAKE_MS then seats', () => {
       const sc = new Scene();
-      feed(sc, snap(ag('lead', { status: 'done' })));
-      feed(sc, snap(ag('lead', { status: 'busy' })));
+      feed(sc, snap(ag('s', { status: 'done' })));
+      feed(sc, snap(ag('s', { status: 'busy' })));
       const a = sc.actors()[0];
       expect(a.phase).toBe('waking');
       sc.tick(16);
@@ -196,14 +196,24 @@ describe('Scene', () => {
 
     it('idle -> busy and runs increase while busy wake; other changes do not', () => {
       const sc = new Scene();
-      feed(sc, snap(ag('lead', { status: 'idle' })));
-      feed(sc, snap(ag('lead', { status: 'busy', runs: 3 })));
+      feed(sc, snap(ag('s', { status: 'idle' })));
+      feed(sc, snap(ag('s', { status: 'busy', runs: 3 })));
       expect(sc.actors()[0].phase).toBe('waking');
       run(sc, 1000);
-      feed(sc, snap(ag('lead', { status: 'busy', runs: 3 })));
+      feed(sc, snap(ag('s', { status: 'busy', runs: 3 })));
       expect(sc.actors()[0].phase).toBe('seated');
-      feed(sc, snap(ag('lead', { status: 'busy', runs: 4 })));
+      feed(sc, snap(ag('s', { status: 'busy', runs: 4 })));
       expect(sc.actors()[0].phase).toBe('waking');
+    });
+
+    it('leads never wake (a new prompt is not a new shift)', () => {
+      const sc = new Scene();
+      feed(sc, snap(ag('lead', { status: 'idle' })));
+      feed(sc, snap(ag('lead', { status: 'busy' })));
+      expect(sc.actors()[0].phase).toBe('seated');
+      feed(sc, snap(ag('lead', { status: 'done' })));
+      feed(sc, snap(ag('lead', { status: 'busy' })));
+      expect(sc.actors()[0].phase).toBe('seated');
     });
 
     it('does not wake an arriving actor', () => {
@@ -235,16 +245,16 @@ describe('Scene', () => {
 
     it('atMachine stays true while waking or changing at the machine spot', () => {
       const sc = new Scene();
-      feedM(sc, snap(withSkill(ag('lead', { status: 'done' }))));
+      feedM(sc, snap(withSkill(ag('lead', { kind: 'sub', status: 'done' }))));
       const a = sc.actors()[0];
       run(sc, 60000);
       expect(a.atMachine).toBe(true);
-      feedM(sc, snap(withSkill(ag('lead', { status: 'busy' }))));
+      feedM(sc, snap(withSkill(ag('lead', { kind: 'sub', status: 'busy' }))));
       expect(a.phase).toBe('waking');
       sc.tick(16);
       expect(a.atMachine).toBe(true);
       run(sc, 1000);
-      feedM(sc, snap(withSkill(ag('lead', { role: 'critic' }))));
+      feedM(sc, snap(withSkill(ag('lead', { kind: 'sub', role: 'critic' }))));
       expect(a.phase).toBe('changing');
       sc.tick(16);
       expect(a.atMachine).toBe(true);

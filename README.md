@@ -110,9 +110,9 @@ Create `~/.config/agent-office/skills.json`. Like the role override it works per
 
 ## Staff
 
-Sub-agents of the same type in one session are one recurring employee, not a new figure per run. A `reviewer` that was started five times is one persona with five runs; the tooltip shows its role, "5th run" and up to three recent tasks. If two instances of a type run at the same time, the second one shows up as a colleague named `reviewer 2` (and so on). Personas never span sessions, so two worktrees have separate teams.
+Sub-agents of the same type in one session are one recurring employee, not a new figure per run. A `reviewer` that was started five times is one persona with five runs; the tooltip shows its role, the run count (e.g. `5. Einsatz`) and up to three recent tasks. If two instances of a type run at the same time, the second one shows up as a colleague named `reviewer 2` (and so on). Personas never span sessions, so two worktrees have separate teams.
 
-- An employee who was done or idle and starts working again stretches and picks up a coffee before sitting down.
+- An employee who was done or idle and starts working again stretches and picks up a coffee before sitting down (staff only; the department head just keeps working on the next prompt).
 - An instance that has not written anything for more than 30 minutes counts as ended (crashed or aborted); otherwise a dead sub-agent would block its slot forever. Pauses under 30 minutes still count as the same running agent: it keeps its own figure and shows as idle, not done.
 - A persona goes home after its last run has been finished for 30 minutes.
 

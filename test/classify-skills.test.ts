@@ -39,6 +39,16 @@ describe('skill rules', () => {
     expect(classifySkillByRules(cfg, name, '')).toBe(cat);
   });
 
+  it('short keywords (<= 2 chars) match whole tokens only', () => {
+    expect(classifySkillByRules(cfg, 'prompt-optimizer', '')).not.toBe('git');
+    expect(classifySkillByRules(cfg, 'presentation-maker', '')).not.toBe('git');
+    expect(classifySkillByRules(cfg, 'iterate-pr', '')).toBe('git');
+    expect(classifySkillByRules(cfg, 'acme:openPr', '')).toBe('git');
+    expect(classifySkillByRules(cfg, 'ui-kit', '')).toBe('design');
+    expect(classifySkillByRules(cfg, 'build', '')).not.toBe('design');
+    expect(classifySkillByRules(cfg, 'acme:uix-tool', '')).not.toBe('design');
+  });
+
   it('unknown name -> null (classifier turns it into other)', () => {
     expect(classifySkillByRules(cfg, 'my-weather', '')).toBeNull();
     expect(new SkillClassifier(cfg, null, join(tmp(), 's.json')).categoryFor('my-weather', '')).toBe('other');

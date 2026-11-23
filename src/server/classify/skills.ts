@@ -20,6 +20,8 @@ export interface SkillConfig {
 export const DEFAULT_SKILL_CACHE_PATH = join(homedir(), '.cache', 'agent-office', 'skills.json');
 /** description keywords shorter than this are ignored (else "pr" matches "prompts") */
 const DESCRIPTION_MIN_KEYWORD_LEN = 4;
+/** name keywords up to this length match whole tokens only (else "pr" matches "prompt-…", "ui" matches "uix") */
+const WHOLE_TOKEN_MAX_LEN = 2;
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null;
@@ -58,7 +60,7 @@ const compiledCache = new WeakMap<SkillConfig, CompiledRules<SkillCategory>>();
 function compiled(cfg: SkillConfig): CompiledRules<SkillCategory> {
   let r = compiledCache.get(cfg);
   if (!r) {
-    r = compileKeywordRules(cfg.categories);
+    r = compileKeywordRules(cfg.categories, { wholeTokenMaxLen: WHOLE_TOKEN_MAX_LEN });
     compiledCache.set(cfg, r);
   }
   return r;

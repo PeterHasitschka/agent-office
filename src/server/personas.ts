@@ -53,7 +53,7 @@ export function buildPersonas(instances: SubagentInstance[], leadId: string, now
         status: done ? 'done' : now - current.lastWriteAt < BUSY_MS ? 'busy' : 'idle',
         runs: occ.length,
         recentTasks: occ.slice(-3).reverse().map((x) => x.description),
-        startedAt: occ[0].startedAt,
+        startedAt: current.startedAt, // tooltip "seit X min" = this run; runs/recentTasks carry the history
         lastActivityAt: current.lastWriteAt,
         ...(done ? { finishedAt: end } : {}),
       });

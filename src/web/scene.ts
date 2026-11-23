@@ -61,8 +61,9 @@ export class Scene {
       if (act.phase === 'leaving-desk') this.setPhase(act, 'walking-in');
       else if (act.phase === 'riding-down') this.setPhase(act, 'riding-up');
       else if (act.phase === 'exiting') this.setPhase(act, 'arriving');
-      const woke = ((prev.status === 'done' || prev.status === 'idle') && a.status === 'busy')
-        || (a.runs ?? 0) > (prev.runs ?? 0);
+      // staff only: a lead going busy again is just the next prompt, not a new shift
+      const woke = a.kind === 'sub' && (((prev.status === 'done' || prev.status === 'idle') && a.status === 'busy')
+        || (a.runs ?? 0) > (prev.runs ?? 0));
       if (act.phase === 'seated' && woke) this.setPhase(act, 'waking');
       else if (act.phase === 'seated' && a.role !== act.shownRole) this.setPhase(act, 'changing');
     }

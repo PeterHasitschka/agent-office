@@ -17,7 +17,7 @@ describe('buildPersonas', () => {
     expect(ps).toHaveLength(1);
     expect(ps[0]).toMatchObject({ id: 'lead:note-keeper:0', slot: 0, runs: 5, status: 'done' });
     expect(ps[0].recentTasks).toEqual(['task 4', 'task 3', 'task 2']);
-    expect(ps[0].startedAt).toBe(NOW - 10 * MIN);
+    expect(ps[0].startedAt).toBe(NOW - 2 * MIN); // current instance's start, not the first run's
     expect(ps[0].finishedAt).toBe(NOW - 0.5 * MIN);
   });
 
@@ -89,6 +89,12 @@ describe('buildPersonas', () => {
     }
     expect(before.find((p) => p.slot === 0)!.status).toBe('idle');
     expect(after.find((p) => p.slot === 0)!.status).toBe('busy');
+  });
+
+  it('persona startedAt is the current instance start', () => {
+    const ps = buildPersonas([inst('a', 'scout', 30, 25, true), inst('b', 'scout', 7, 0, false)], 'lead', NOW);
+    expect(ps).toHaveLength(1);
+    expect(ps[0]).toMatchObject({ runs: 2, startedAt: NOW - 7 * MIN });
   });
 
   it('different agent types are separate personas', () => {

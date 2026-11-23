@@ -57,8 +57,10 @@ function normalize(s: string): string {
   return s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
 }
 
-function compile(keywords: string[]): RegExp | null {
-  const parts = keywords.filter((k) => k.trim());
+function compile(keywords: string[], wholeTokenMaxLen: number): RegExp | null {
+  const parts = keywords.filter((k) => k.trim())
+    // short keywords must be a whole token ("pr" matches "iterate-pr", not "prompt-…")
+    .map((k) => (k.trim().length <= wholeTokenMaxLen ? `${k}(?![a-z0-9])` : k));
   if (!parts.length) return null;
   try {
     // keyword must start at a word start (so "ui" is not found in "build"); prefix match allowed ("review" -> "reviewer")
@@ -71,6 +73,7 @@ function compile(keywords: string[]): RegExp | null {
 interface CompiledRule<K extends string> {
   id: K;
   keywords: string[];
+  wholeTokenMaxLen: number;
   /** compiled regex per minimum keyword length (0 = all keywords) */
   byMinLen: Map<number, RegExp | null>;
 }
@@ -79,11 +82,16 @@ export interface CompiledRules<K extends string> {
   rules: CompiledRule<K>[];
 }
 
-export function compileKeywordRules<K extends string>(defs: Record<K, { keywords: string[] }>): CompiledRules<K> {
+/** `wholeTokenMaxLen`: keywords up to this length only match whole tokens (tokens split on non-alphanumerics + camelCase); 0 = prefix match for all. */
+export function compileKeywordRules<K extends string>(
+  defs: Record<K, { keywords: string[] }>,
+  opts?: { wholeTokenMaxLen?: number },
+): CompiledRules<K> {
+  const wholeTokenMaxLen = opts?.wholeTokenMaxLen ?? 0;
   const rules: CompiledRule<K>[] = [];
   for (const [id, def] of Object.entries<{ keywords: string[] }>(defs)) {
     const keywords = Array.isArray(def?.keywords) ? def.keywords : [];
-    rules.push({ id: id as K, keywords, byMinLen: new Map([[0, compile(keywords)]]) });
+    rules.push({ id: id as K, keywords, wholeTokenMaxLen, byMinLen: new Map([[0, compile(keywords, wholeTokenMaxLen)]]) });
   }
   return { rules };
 }
@@ -91,7 +99,7 @@ export function compileKeywordRules<K extends string>(defs: Record<K, { keywords
 function regexFor<K extends string>(r: CompiledRule<K>, minLen: number): RegExp | null {
   let re = r.byMinLen.get(minLen);
   if (re === undefined) {
-    re = compile(r.keywords.filter((k) => k.trim().length >= minLen));
+    re = compile(r.keywords.filter((k) => k.trim().length >= minLen), r.wholeTokenMaxLen);
     r.byMinLen.set(minLen, re);
   }
   return re;
