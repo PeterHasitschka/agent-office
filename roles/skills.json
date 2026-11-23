@@ -1,0 +1,4 @@
+{
+  "ignoreCommands": ["clear","compact","model","plugin","plugins","mcp","effort","resume","reload-plugins","config","help","login","logout","status","cost","doctor","memory","permissions","hooks","agents","init","exit","quit","fast","vim","theme","terminal-setup","ide","add-dir","bug","feedback","export","context","rewind","release-notes","upgrade","usage","todos-builtin"],
+  "categories": {}
+}
