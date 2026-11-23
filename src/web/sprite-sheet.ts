@@ -1,11 +1,8 @@
 // Dev-only page: renders every role × pose (+ desk prop) at 4× zoom so sprites can be eyeballed.
 import type { RoleId } from '../shared/types.js';
-import { drawChibi, drawDeskProp, DESK_TOP, FRAMES_PER_POSE, HEADROOM, SPRITE_H, SPRITE_W, PROP_W, type Pose } from './sprites.js';
+import { ALL_ROLES, drawChibi, drawDeskProp, DESK_TOP, FRAMES_PER_POSE, HEADROOM, SPRITE_H, SPRITE_W, PROP_W, type Pose } from './sprites.js';
 
-const ROLES: RoleId[] = [
-  'lead', 'intern', 'builder', 'detective', 'critic', 'lab', 'archivist', 'poet',
-  'artist', 'strategist', 'janitor', 'doctor', 'guard', 'secretary',
-];
+const ROLES = ALL_ROLES;
 const POSES: Pose[] = ['work', 'idle', 'sleep', 'walk', 'wave'];
 const W = 1 + SPRITE_W + PROP_W + 1;
 const H = HEADROOM + SPRITE_H + 2;

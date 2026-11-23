@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { RoleId } from '../../src/shared/types.js';
 import {
-  drawChibi, drawDeskProp, ROLE_PALETTE, FRAMES_PER_POSE, SPRITE_W, SPRITE_H, PROP_W, HEADROOM,
+  ALL_ROLES, QUESTION_COLOR, ZZ_COLORS, drawChibi, drawDeskProp, ROLE_PALETTE, FRAMES_PER_POSE, SPRITE_W, SPRITE_H, PROP_W, HEADROOM,
   type Pose,
 } from '../../src/web/sprites.js';
 
@@ -18,10 +18,7 @@ function fakeCtx(): { ctx: CanvasRenderingContext2D; calls: Call[] } {
   return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
 }
 
-const ROLES: RoleId[] = [
-  'builder', 'detective', 'critic', 'lab', 'archivist', 'poet', 'artist', 'strategist',
-  'janitor', 'doctor', 'guard', 'secretary', 'lead', 'intern',
-];
+const ROLES: readonly RoleId[] = ALL_ROLES;
 const POSES: Pose[] = ['work', 'idle', 'sleep', 'walk', 'wave'];
 const X = 100, Y = 50;
 
@@ -100,6 +97,36 @@ describe('drawChibi', () => {
   it('every role looks different', () => {
     const seen = new Set(ROLES.map((r) => key(chibi(r, 'idle', 0))));
     expect(seen.size).toBe(ROLES.length);
+  });
+
+  it('wave draws a "?" bubble in the headroom above the head', () => {
+    for (const role of ROLES) for (let f = 0; f < FRAMES_PER_POSE; f++) {
+      const above = chibi(role, 'wave', f).filter((c) => c.y + c.h <= Y);
+      expect(above.some((c) => c.c === QUESTION_COLOR), `${role}/${f}`).toBe(true);
+      expect(above.some((c) => c.c === '#ffffff'), `${role}/${f}`).toBe(true);
+    }
+  });
+
+  it('lead leans back when idle with hands behind the head', () => {
+    expect(key(chibi('lead', 'idle', 0))).not.toBe(key(chibi('lead', 'work', 0)));
+    // hands behind the head: sleeve-coloured pixels beside the head
+    expect(chibi('lead', 'idle', 0).some((c) => c.c === ROLE_PALETTE.lead.shirt && c.y < Y + 10 && (c.x < X + 3 || c.x >= X + 13))).toBe(true);
+  });
+
+  it('strategist, janitor and secretary sleep in their own body pose, not just with zZ', () => {
+    const noZ = (calls: Call[]) => calls.filter((c) => !ZZ_COLORS.includes(c.c));
+    const body = (calls: Call[]) => calls.filter((c) => c.y >= Y + 11); // torso + legs, below the face
+    for (const role of ['strategist', 'janitor', 'secretary'] as const) {
+      expect(key(noZ(chibi(role, 'sleep', 0))), role).not.toBe(key(chibi(role, 'idle', 0)));
+      expect(key(body(noZ(chibi(role, 'sleep', 0)))), role).not.toBe(key(body(chibi(role, 'idle', 0))));
+    }
+  });
+
+  it('treats non-finite frames as frame 0', () => {
+    expect(key(chibi('builder', 'work', NaN))).toBe(key(chibi('builder', 'work', 0)));
+    expect(key(chibi('builder', 'work', Infinity))).toBe(key(chibi('builder', 'work', 0)));
+    const { ctx } = fakeCtx();
+    expect(() => drawDeskProp(ctx, X, Y, 'lab', 'work', NaN)).not.toThrow();
   });
 
   it('wraps frame numbers beyond FRAMES_PER_POSE', () => {

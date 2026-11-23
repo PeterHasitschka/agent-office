@@ -16,6 +16,16 @@ export type ArmPose =
   | { kind: 'ear' }
   | { kind: 'cross' };
 
+/** Whole-body pose override (lean back, sit on bucket, feet up…). Offsets are in sprite px. */
+export interface PoseMod {
+  bodyDx?: number;   // torso + arms + head
+  bodyDy?: number;
+  headDx?: number;   // extra head offset on top of bodyDx (tilt)
+  legs?: 'stand' | 'sit' | 'feetUp';
+  arms?: 'behindHead';
+  chair?: boolean;   // draw a small office chair behind/under the body
+}
+
 export const C = {
   outline: '#2a1e26',
   skin: '#f7cfa6',
@@ -108,6 +118,8 @@ export interface RoleLook {
   noMouth?: boolean;
   /** item(s) in hand; R/L = right/left hand pixel */
   held?(p: Px, s: S, r: Pt, l: Pt): void;
+  /** role-specific whole-body pose (spec §5.5: lead leans back, janitor sits on bucket, …) */
+  poseMod?(s: S): PoseMod | undefined;
   /** poet dreams in a thought bubble instead of zZ */
   sleepFx?(p: Px, s: S): void;
 }
@@ -325,6 +337,8 @@ export const ROLE_LOOKS: Record<RoleId, RoleLook> = {
 
   strategist: {
     pants: '#22305a',
+    // asleep leaning against the whiteboard on the right
+    poseMod: (s) => (s.pose === 'sleep' ? { bodyDx: 1, headDx: 2 } : undefined),
     workArm: (f) => ({ kind: 'fwd', dy: cyc(f, [-1, 0, -1, 1]) }),
     hair(p) {
       hairCap(p, P.strategist.hair, 1);
@@ -348,6 +362,8 @@ export const ROLE_LOOKS: Record<RoleId, RoleLook> = {
 
   janitor: {
     pants: '#4b77b0',
+    // asleep sitting on an upturned bucket
+    poseMod: (s) => (s.pose === 'sleep' ? { bodyDy: 1, legs: 'sit' } : undefined),
     sleeve: '#ecc76a',
     noMouth: true,
     workArm: (f) => ({ kind: 'fwd', dy: cyc(f, [0, 1, 0, 1]) }),
@@ -417,6 +433,9 @@ export const ROLE_LOOKS: Record<RoleId, RoleLook> = {
 
   secretary: {
     pants: '#3b2f4f',
+    sleepHeadDown: 0,
+    // asleep leaned back in the chair, feet up on the desk (shoes drawn by the desk prop)
+    poseMod: (s) => (s.pose === 'sleep' ? { bodyDx: -1, bodyDy: 1, legs: 'feetUp', chair: true } : undefined),
     workArm: (f) => ({ kind: 'fwd', dy: cyc(f, [0, 1, 1, 0]) }),
     talksAtWork: (f) => f % 2 === 0,
     back(p) {
@@ -446,6 +465,8 @@ export const ROLE_LOOKS: Record<RoleId, RoleLook> = {
     pants: '#2c2e37',
     workArm: (f) => (f < 2 ? { kind: 'ear' } : { kind: 'fwd', dy: f - 2 }),
     talksAtWork: (f) => f === 0,
+    // idle = leaned back in the chair, hands behind the head
+    poseMod: (s) => (s.pose === 'idle' ? { headDx: -1, bodyDy: 1, arms: 'behindHead', chair: true } : undefined),
     hair(p) {
       hairCap(p, P.lead.hair);
       p(4, 3, 5, 1, P.lead.hair); p(4, 2, 5, 1, O); p(9, 3, 1, 1, O);

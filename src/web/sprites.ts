@@ -9,7 +9,7 @@
 import type { RoleId } from '../shared/types.js';
 import {
   C, ROLE_LOOKS, ROLE_PALETTE, glyph, makePen, shade, shift,
-  type ArmPose, type Pose, type Pt, type Px, type S,
+  type ArmPose, type Pose, type PoseMod, type Pt, type Px, type S,
 } from './sprites-roles.js';
 
 export { ROLE_PALETTE };
@@ -21,9 +21,15 @@ export const HEADROOM = 8;
 export const PROP_W = 16;
 export const DESK_TOP = 14;
 export const FRAMES_PER_POSE = 4;
+export const ALL_ROLES: readonly RoleId[] = [
+  'lead', 'intern', 'builder', 'detective', 'critic', 'lab', 'archivist', 'poet',
+  'artist', 'strategist', 'janitor', 'doctor', 'guard', 'secretary',
+];
+export const QUESTION_COLOR = '#e0533b';
+export const ZZ_COLORS: readonly string[] = [C.zz, shade(C.zz, 0.85)];
 
 const O = C.outline;
-const wrap = (f: number) => ((Math.trunc(f) % FRAMES_PER_POSE) + FRAMES_PER_POSE) % FRAMES_PER_POSE;
+const wrap = (f: number) => (Number.isFinite(f) ? ((Math.trunc(f) % FRAMES_PER_POSE) + FRAMES_PER_POSE) % FRAMES_PER_POSE : 0);
 
 const Z_SMALL = ['###', '..#', '.#.', '###'];
 const Z_BIG = ['####', '...#', '..#.', '.#..', '####'];
@@ -100,18 +106,45 @@ function head(p: Px, s: S, role: RoleId, lx: number, talking: boolean): void {
   look.face?.(p, s, lx);
 }
 
+/** Seated on an upturned bucket (drawn in front of the lowered torso's seat), feet dangling in front. */
+function bucket(p: Px): void {
+  p(1, 18, 14, 4, O); p(2, 19, 12, 3, '#cfd5db'); p(1, 18, 14, 1, '#8a939c');
+  p(2, 20, 12, 1, '#9aa3ad'); p(2, 19, 1, 3, C.white);
+}
+function sitLegs(p: Px, pants: string): void {
+  p(4, 19, 3, 2, O); p(5, 19, 1, 2, pants); p(4, 21, 3, 1, C.shoe);
+  p(9, 19, 3, 2, O); p(10, 19, 1, 2, pants); p(9, 21, 3, 1, C.shoe);
+}
+/** Legs stretched up to the desk on the right (feet continue in the desk prop). */
+function feetUp(p: Px, pants: string): void {
+  p(8, 15, 5, 4, O); p(11, 12, 5, 4, O);
+  p(9, 16, 3, 2, pants); p(12, 13, 4, 2, pants); p(11, 15, 1, 1, pants);
+}
+function chair(p: Px, front: boolean): void {
+  const c = '#8a7aa6';
+  if (!front) { p(1, 9, 3, 11, O); p(2, 10, 1, 9, c); return; }
+  p(2, 19, 11, 2, O); p(3, 19, 9, 1, c); p(4, 21, 1, 1, O); p(10, 21, 1, 1, O); p(7, 21, 1, 1, O);
+}
+/** Arms folded behind the head: elbows poke out on both sides. */
+function armsBehindHead(p: Px, sleeve: string): void {
+  p(0, 4, 3, 5, O); p(1, 8, 3, 3, O); p(2, 10, 3, 3, O);
+  p(1, 5, 1, 3, sleeve); p(2, 8, 1, 2, sleeve); p(3, 10, 1, 2, sleeve);
+  p(12, 4, 3, 5, O); p(11, 8, 3, 3, O); p(10, 10, 3, 3, O);
+  p(13, 5, 1, 3, sleeve); p(12, 8, 1, 2, sleeve); p(11, 10, 1, 2, sleeve);
+}
+
 function questionBubble(p: Px, f: number): void {
   const b = f === 1 || f === 2 ? 1 : 0;
   p(10, -8 + b, 5, 7, O); p(9, -7 + b, 7, 5, O);
   p(10, -7 + b, 5, 5, C.white);
-  glyph(p, QMARK, 11, -7 + b, '#e0533b');
+  glyph(p, QMARK, 11, -7 + b, QUESTION_COLOR);
   p(10, -1 + b, 1, 1, O);
 }
 
 function zzz(p: Px, f: number): void {
   // small z drifts up from the head; big Z hovers top-right and bobs
-  glyph(p, Z_SMALL, 8 + (f % 2), -1 - f, C.zz);
-  glyph(p, Z_BIG, 12, -8 + (f >> 1), shade(C.zz, 0.85));
+  glyph(p, Z_SMALL, 8 + (f % 2), -1 - f, ZZ_COLORS[0]);
+  glyph(p, Z_BIG, 12, -8 + (f >> 1), ZZ_COLORS[1]);
 }
 
 // ---------------------------------------------------------------- public API
@@ -140,20 +173,29 @@ export function drawChibi(ctx: CanvasRenderingContext2D, x: number, y: number, r
   }
   const late = right.kind === 'up' || right.kind === 'ear' || right.kind === 'cross';
 
-  look.back?.(p, s);
-  legs(p, pose, f, look.pants);
-  p(4, 11, 8, 8, O);
-  p(5, 12, 6, 6, pal.shirt);
-  p(10, 12, 1, 6, shade(pal.shirt, 0.82));
-  look.torso?.(p, s);
+  const mod: PoseMod = look.poseMod?.(s) ?? {};
+  const pb = shift(p, mod.bodyDx ?? 0, mod.bodyDy ?? 0);
+  const ph = shift(pb, mod.headDx ?? 0, hd);
+
+  if (mod.chair) { chair(p, false); chair(p, true); }
+  look.back?.(pb, s);
+  if (!mod.legs || mod.legs === 'stand') legs(p, pose, f, look.pants);
+  if (mod.arms === 'behindHead') armsBehindHead(pb, sleeve);
+  pb(4, 11, 8, 8, O);
+  pb(5, 12, 6, 6, pal.shirt);
+  pb(10, 12, 1, 6, shade(pal.shirt, 0.82));
+  look.torso?.(pb, s);
+  if (mod.legs === 'feetUp') feetUp(p, look.pants);
+  if (mod.legs === 'sit') { bucket(p); sitLegs(p, look.pants); }
 
   let l = { x: 3, y: 15 };
   let r: Pt = { x: 12, y: 15 };
-  if (right.kind !== 'cross') l = armL(p, leftDy, sleeve);
-  if (!late) r = armR(p, right, sleeve);
-  head(shift(p, 0, hd), s, role, lx, talking);
-  if (late) r = armR(p, right, sleeve);
-  look.held?.(p, s, r, l);
+  const ownArms = mod.arms !== 'behindHead';
+  if (ownArms && right.kind !== 'cross') l = armL(pb, leftDy, sleeve);
+  if (ownArms && !late) r = armR(pb, right, sleeve);
+  head(ph, s, role, lx, talking);
+  if (ownArms && late) r = armR(pb, right, sleeve);
+  if (ownArms) look.held?.(pb, s, r, l);
 
   if (pose === 'wave') questionBubble(p, f);
   if (pose === 'sleep') (look.sleepFx ?? ((pp: Px, ss: S) => zzz(pp, ss.f)))(p, s);
@@ -279,7 +321,7 @@ const PROPS: Record<RoleId, PropFn> = {
       p(10, uy + 1, 1, 1, s.pose === 'work' && (u + s.f) % 2 ? '#ffb340' : '#6b4a1a');
     }
     if (s.pose === 'work') { p(2, 8 + (s.f % 2), 3, 1, C.metal); p(1, 7 + (s.f % 2), 1, 3, C.metal); }
-    if (s.pose === 'sleep') { p(0, 16, 5, 6, O); p(1, 17, 3, 4, '#d9d9d9'); p(0, 16, 5, 1, '#9aa3ad'); } // bucket
+    if (s.pose === 'sleep') { p(2, 1, 1, 17, C.wood); p(0, 18, 5, 3, O); p(1, 18, 3, 3, '#e4ddc8'); } // mop leaning on the rack
   },
   doctor(p, s) {
     const on = s.pose !== 'sleep';
@@ -316,7 +358,7 @@ const PROPS: Record<RoleId, PropFn> = {
         p(ex, ey, 4, 3, O); p(ex, ey, 3, 2, C.white); p(ex + 1, ey + 1, 1, 1, C.red);
       }
     }
-    if (s.pose === 'sleep') { p(0, 11, 3, 3, C.shoe); p(4, 11, 3, 3, C.shoe); p(0, 13, 7, 1, '#3b2f4f'); }
+    if (s.pose === 'sleep') { p(0, 10, 2, 4, C.shoe); p(0, 10, 2, 1, '#8a6a6a'); p(3, 10, 2, 4, C.shoe); p(3, 10, 2, 1, '#8a6a6a'); } // shoes on the desk, soles up
   },
   lead(p, s) {
     const on = s.pose !== 'sleep';
