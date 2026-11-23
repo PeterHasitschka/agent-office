@@ -144,6 +144,43 @@ describe('RoleClassifier', () => {
     expect(Date.now() - t).toBeLessThan(50);
     await c.idle();
   });
+  it('low confidence is never retried', async () => {
+    let n = 0;
+    const url = await stub((b, res) => { n++; okReply('doctor', 0.3)(b, res); });
+    let now = 0;
+    const c = new RoleClassifier(cfg, new LayaClient({ url }), join(tmp(), 'r.json'), 0.5, () => now);
+    c.roleFor('mystery', ''); await c.idle();
+    now += 10 * 60_000;
+    expect(c.roleFor('mystery', '')).toBe('intern'); await c.idle();
+    expect(n).toBe(1);
+  });
+  it('errors are retried no sooner than 60s', async () => {
+    let n = 0;
+    const url = await stub((_b, res) => { n++; res.setHeader('content-type', 'text/html'); res.end('<html/>'); });
+    let now = 1000;
+    const c = new RoleClassifier(cfg, new LayaClient({ url }), join(tmp(), 'r.json'), 0.5, () => now);
+    c.roleFor('mystery', ''); await c.idle();
+    now += 59_000;
+    c.roleFor('mystery', ''); await c.idle();
+    expect(n).toBe(1);
+    now += 2_000;
+    c.roleFor('mystery', ''); await c.idle();
+    expect(n).toBe(2);
+  });
+  it('prototype keys do not leak', () => {
+    const c = new RoleClassifier(cfg, null, join(tmp(), 'r.json'));
+    expect(c.roleFor('constructor', '')).toBe('intern');
+    expect(c.roleFor('toString', '')).toBe('intern');
+    expect(c.roleFor('__proto__', '')).toBe('intern');
+  });
+  it('caps the cache at 500 entries, evicting oldest', async () => {
+    const url = await stub(okReply('doctor', 0.9));
+    const cache = join(tmp(), 'r.json');
+    const c = new RoleClassifier(cfg, new LayaClient({ url }), cache);
+    for (let i = 0; i < 510; i++) { c.roleFor('zz' + i, ''); if (i % 50 === 0) await c.idle(); }
+    await c.idle(); await c.flush();
+    expect(Object.keys(JSON.parse(readFileSync(cache, 'utf8'))).length).toBe(500);
+  });
   it('tolerates corrupt cache', () => {
     const cache = join(tmp(), 'r.json');
     writeFileSync(cache, 'garbage');

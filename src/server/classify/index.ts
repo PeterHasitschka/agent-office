@@ -9,9 +9,19 @@ import { classifyByRules, type RoleConfig } from './rules.js';
 export const DEFAULT_CACHE_PATH = join(homedir(), '.cache', 'agent-office', 'roles.json');
 const MAX_CONCURRENT = 2;
 const WRITE_DEBOUNCE_MS = 500;
+const MAX_ENTRIES = 500;
+const ERROR_RETRY_MS = 60_000;
+
+function capSet<V>(m: Map<string, V>, k: string, v: V): void {
+  m.delete(k);
+  m.set(k, v);
+  while (m.size > MAX_ENTRIES) m.delete(m.keys().next().value as string);
+}
 
 export class RoleClassifier implements RoleSource {
-  private cache: Record<string, RoleId> = {};
+  private cache = new Map<string, RoleId>();
+  /** key -> earliest time (ms) a retry is allowed; Infinity = never (low confidence is deterministic) */
+  private retryAt = new Map<string, number>();
   private queued = new Set<string>();
   private queue: { key: string; text: string }[] = [];
   private active = 0;
@@ -24,11 +34,12 @@ export class RoleClassifier implements RoleSource {
     private laya: LayaClient | null,
     private cachePath: string = DEFAULT_CACHE_PATH,
     private threshold = 0.5,
+    private now: () => number = Date.now,
   ) {
     try {
       const j = JSON.parse(readFileSync(cachePath, 'utf8'));
       if (j && typeof j === 'object') {
-        for (const [k, v] of Object.entries<any>(j)) if (typeof v === 'string' && v in cfg.roles) this.cache[k] = v as RoleId;
+        for (const [k, v] of Object.entries<any>(j)) if (typeof v === 'string' && Object.hasOwn(cfg.roles, v)) capSet(this.cache, k, v as RoleId);
       }
     } catch {
       /* no or broken cache */
@@ -39,9 +50,10 @@ export class RoleClassifier implements RoleSource {
     const byRule = classifyByRules(this.cfg, agentType, description);
     if (byRule) return byRule;
     const key = `${agentType}\u0000${description}`;
-    const hit = this.cache[key] ?? this.cache[agentType];
+    const hit = this.cache.get(key);
     if (hit) return hit;
-    if (this.laya && !this.queued.has(key)) {
+    const when = this.retryAt.get(key);
+    if (this.laya && !this.queued.has(key) && (when === undefined || this.now() >= when)) {
       this.queued.add(key);
       this.queue.push({ key, text: `Agent type: ${agentType}\nTask: ${description}` });
       this.pump();
@@ -64,15 +76,15 @@ export class RoleClassifier implements RoleSource {
   private async run(job: { key: string; text: string }): Promise<void> {
     try {
       const r = await this.laya!.classify(job.text, this.cfg);
-      if (r && r.confidence >= this.threshold) {
-        this.cache[job.key] = r.role;
+      if (!r) capSet(this.retryAt, job.key, this.now() + ERROR_RETRY_MS);
+      else if (r.confidence >= this.threshold) {
+        capSet(this.cache, job.key, r.role);
         this.scheduleWrite();
-      }
+      } else capSet(this.retryAt, job.key, Infinity);
     } catch {
-      /* classification is best-effort */
+      capSet(this.retryAt, job.key, this.now() + ERROR_RETRY_MS);
     } finally {
-      // allow a retry later if it did not produce a cached result
-      if (!(job.key in this.cache)) this.queued.delete(job.key);
+      this.queued.delete(job.key);
     }
   }
 
@@ -110,7 +122,7 @@ export class RoleClassifier implements RoleSource {
     this.dirty = false;
     try {
       mkdirSync(dirname(this.cachePath), { recursive: true });
-      writeFileSync(this.cachePath, JSON.stringify(this.cache, null, 2));
+      writeFileSync(this.cachePath, JSON.stringify(Object.fromEntries(this.cache), null, 2));
     } catch {
       /* cache is optional */
     }
