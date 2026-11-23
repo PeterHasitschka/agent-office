@@ -1,0 +1,5 @@
+{
+  "name": "agent-office",
+  "description": "Sends Claude Code hook events to the local agent-office server for exact agent status",
+  "version": "0.1.0"
+}

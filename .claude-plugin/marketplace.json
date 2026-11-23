@@ -1,0 +1,15 @@
+{
+  "name": "agent-office",
+  "owner": {
+    "name": "agent-office"
+  },
+  "description": "Local marketplace for the agent-office hooks plugin",
+  "plugins": [
+    {
+      "name": "agent-office",
+      "source": "./plugin",
+      "description": "Sends Claude Code hook events to the local agent-office server",
+      "version": "0.1.0"
+    }
+  ]
+}
