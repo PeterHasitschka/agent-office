@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Office</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #2a2f5e; overflow: hidden; }
+  #scroller { position: fixed; inset: 0; overflow-x: hidden; overflow-y: auto; }
+  #office { display: block; margin: 0 auto; image-rendering: pixelated; image-rendering: crisp-edges; }
+  .pixel-box {
+    position: fixed; z-index: 10; pointer-events: none;
+    font: 13px/1.35 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #3a2614;
+    background: #fbf3dc; border: 3px solid #2a1e26; border-radius: 0;
+    box-shadow: 4px 4px 0 rgba(42, 30, 38, 0.55); padding: 6px 9px;
+  }
+  #tooltip { left: 0; top: 0; max-width: 300px; }
+  #tooltip .tt-title { font-weight: 700; color: #2a1e26; margin-bottom: 3px; padding-bottom: 3px; border-bottom: 2px dashed #d9c39c; }
+  #tooltip .tt-role { color: #7b4f86; font-weight: 700; }
+  #tooltip .tt-line { color: #5a4630; }
+  #tooltip .tt-status { font-weight: 700; }
+  #tooltip .tt-busy { color: #2f8a3e; }
+  #tooltip .tt-idle { color: #9a7a20; }
+  #tooltip .tt-waiting { color: #e0413f; }
+  #tooltip .tt-done { color: #5864d6; }
+  #offline { top: 12px; left: 50%; transform: translateX(-50%); background: #e0413f; color: #fff; font-weight: 700; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="scroller"><canvas id="office"></canvas></div>
+<div id="tooltip" class="pixel-box" hidden></div>
+<div id="offline" class="pixel-box" hidden>Verbindung weg…</div>
+<script src="main.js"></script>
+</body>
+</html>

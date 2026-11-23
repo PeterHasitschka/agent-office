@@ -20,6 +20,13 @@ describe('Scene', () => {
     expect(sc.actors().map(a => a.phase)).toEqual(['seated', 'seated']);
   });
 
+  it('empty initial snapshot does not make the first agents parade in', () => {
+    const sc = new Scene();
+    feed(sc, { generatedAt: 0, floors: [] });
+    feed(sc, snap(ag('lead'), ag('a')));
+    expect(sc.actors().map(a => a.phase)).toEqual(['seated', 'seated']);
+  });
+
   it('new agent arrives in lobby and walks to its desk', () => {
     const sc = new Scene();
     feed(sc, snap(ag('lead')));

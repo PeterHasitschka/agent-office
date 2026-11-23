@@ -58,7 +58,7 @@ export class Scene {
       if (act.phase === 'arriving' || act.phase === 'riding-up' || act.phase === 'walking-in'
         || act.phase === 'seated' || act.phase === 'changing') this.setPhase(act, 'leaving-desk');
     }
-    this.first = false;
+    if (agents.size > 0) this.first = false; // "first" = first update that actually contains agents
     for (const act of this.map.values()) this.updatePose(act);
   }
 
