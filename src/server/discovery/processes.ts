@@ -6,6 +6,10 @@ export interface LiveSession {
   pid: number;
   cwd: string;
   procStartMs: number;
+  /** Claude Code session id from the session meta file (newer versions). */
+  sessionId?: string;
+  /** Session name from the meta file (user-set or derived), when present. */
+  name?: string;
 }
 
 export interface ProcessProbe {
@@ -43,6 +47,9 @@ export const defaultProbe: ProcessProbe = {
   },
 };
 
+/** Only ids safe to use as a file name (no path separators / dots-only). */
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
 export async function listLiveSessions(
   claudeHome: string,
   probe: ProcessProbe = defaultProbe,
@@ -59,17 +66,23 @@ export async function listLiveSessions(
     if (!/^\d+\.json$/.test(name)) continue;
     const pid = parseInt(name, 10);
     if (!probe.isAlive(pid)) continue;
-    const cwd = await probe.cwdOf(pid).catch(() => null);
-    if (!cwd) continue;
-    let procStartMs = 0;
+    let meta: Record<string, unknown> = {};
     try {
-      const meta = JSON.parse(await readFile(join(dir, name), 'utf8')) as { procStart?: unknown };
-      const t = typeof meta.procStart === 'string' ? Date.parse(meta.procStart) : NaN;
-      procStartMs = Number.isNaN(t) ? 0 : t;
+      const parsed: unknown = JSON.parse(await readFile(join(dir, name), 'utf8'));
+      if (typeof parsed === 'object' && parsed !== null) meta = parsed as Record<string, unknown>;
     } catch {
-      /* unreadable/half-written meta: keep 0 */
+      /* unreadable/half-written meta: treat as empty */
     }
-    out.push({ pid, cwd, procStartMs });
+    // Note: newer meta files also carry `status` ("busy"/"idle"); not used yet (semantics unverified).
+    const metaCwd = typeof meta.cwd === 'string' && meta.cwd ? meta.cwd : null;
+    const cwd = metaCwd ?? (await probe.cwdOf(pid).catch(() => null));
+    if (!cwd) continue;
+    const t = typeof meta.procStart === 'string' ? Date.parse(meta.procStart) : NaN;
+    const procStartMs = Number.isNaN(t) ? 0 : t;
+    const s: LiveSession = { pid, cwd, procStartMs };
+    if (typeof meta.sessionId === 'string' && SESSION_ID_RE.test(meta.sessionId)) s.sessionId = meta.sessionId;
+    if (typeof meta.name === 'string' && meta.name.trim()) s.name = meta.name.trim();
+    out.push(s);
   }
   return out.sort((a, b) => a.pid - b.pid);
 }

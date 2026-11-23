@@ -31,6 +31,19 @@ describe('listLiveSessions', () => {
     expect(r[1].procStartMs).toBe(Date.parse('Mon Nov 23 13:07:46 2026'));
   });
 
+  it('reads sessionId, name and cwd from meta; meta cwd preferred over probe', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'ao-'));
+    mkdirSync(join(home, 'sessions'));
+    writeFileSync(join(home, 'sessions', '7.json'), JSON.stringify({ sessionId: 'abc-123', cwd: '/meta/cwd', name: ' n ' }));
+    writeFileSync(join(home, 'sessions', '8.json'), JSON.stringify({ sessionId: '../evil', name: '' }));
+    const all: ProcessProbe = { isAlive: () => true, cwdOf: async () => '/probe/cwd' };
+    const r = await listLiveSessions(home, all);
+    expect(r).toEqual([
+      { pid: 7, cwd: '/meta/cwd', procStartMs: 0, sessionId: 'abc-123', name: 'n' },
+      { pid: 8, cwd: '/probe/cwd', procStartMs: 0 },
+    ]);
+  });
+
   it('returns [] when sessions dir is missing', async () => {
     expect(await listLiveSessions(join(tmpdir(), 'nope-ao'), probe)).toEqual([]);
   });

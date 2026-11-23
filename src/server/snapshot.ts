@@ -1,10 +1,10 @@
 import { basename, join } from 'node:path';
 import type { Agent, Floor, RoleId, Room, Snapshot, Status } from '../shared/types.js';
 import type { EventStore } from './events.js';
-import { defaultProbe, listLiveSessions, type ProcessProbe } from './discovery/processes.js';
+import { defaultProbe, listLiveSessions, type LiveSession, type ProcessProbe } from './discovery/processes.js';
 import { resolveRepo } from './discovery/repo.js';
 import { listSubagents } from './discovery/subagents.js';
-import { findTranscript, leadStatusDetail, sessionTitle, SPAWN_TOOLS, WAITING_TOOLS } from './discovery/transcript.js';
+import { findTranscript, leadStatusDetail, transcriptForSession, sessionTitle, SPAWN_TOOLS, WAITING_TOOLS } from './discovery/transcript.js';
 import { cwdToSlug } from './util/slug.js';
 import { tailJsonl } from './util/tail.js';
 
@@ -40,25 +40,58 @@ function order(map: Map<string, number>, key: string): number {
   return i;
 }
 
+const cleanCwd = (cwd: string) => cwd.replace(/ \(deleted\)$/, '');
+
+/**
+ * Transcript per session (same index). A session id from the meta file is authoritative; the
+ * mtime guess only runs for sessions without one and never reuses a transcript already claimed
+ * by another session in this poll (newest process guesses first).
+ */
+async function resolveTranscripts(
+  claudeHome: string,
+  sessions: LiveSession[],
+): Promise<Array<{ sessionId: string; path: string } | null>> {
+  const out: Array<{ sessionId: string; path: string } | null> = sessions.map(() => null);
+  const claimed = new Set<string>();
+  await Promise.all(
+    sessions.map(async (s, i) => {
+      if (!s.sessionId) return;
+      claimed.add(s.sessionId);
+      out[i] = await transcriptForSession(claudeHome, cleanCwd(s.cwd), s.sessionId).catch(() => null);
+    }),
+  );
+  const guess = sessions
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => !s.sessionId)
+    .sort((a, b) => b.s.procStartMs - a.s.procStartMs || a.s.pid - b.s.pid);
+  for (const { s, i } of guess) {
+    const tr = await findTranscript(claudeHome, cleanCwd(s.cwd), s.procStartMs, claimed).catch(() => null);
+    if (tr) claimed.add(tr.sessionId);
+    out[i] = tr;
+  }
+  return out;
+}
+
 export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
   const now = deps.now ?? Date.now();
   const recent: RecentRooms = deps.recent ?? new Map();
   const sessions = await listLiveSessions(deps.claudeHome, deps.probe ?? defaultProbe);
+  const transcripts = await resolveTranscripts(deps.claudeHome, sessions);
 
   const built = (
     await Promise.all(
-      sessions.map(async (s): Promise<Built | null> => {
+      sessions.map(async (s, i): Promise<Built | null> => {
         try {
-          const cwd = s.cwd.replace(/ \(deleted\)$/, '');
+          const cwd = cleanCwd(s.cwd);
           const repo = await resolveRepo(cwd);
           const roomLabel = repo.isMainCheckout
             ? (repo.branch ? `${repo.repoName} · ${repo.branch}` : repo.repoName)
             : basename(cwd);
-          const tr = await findTranscript(deps.claudeHome, cwd, s.procStartMs);
-          const leadId = tr ? tr.sessionId : `pid:${s.pid}`;
+          const tr = transcripts[i];
+          const leadId = tr ? tr.sessionId : (s.sessionId ?? `pid:${s.pid}`);
 
           let status: Status = 'idle';
-          let name = roomLabel;
+          let name = s.name || roomLabel;
           let startedAt = s.procStartMs || now;
           let lastActivityAt = startedAt;
           let transcriptMtime = 0;
@@ -68,7 +101,7 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
             const d = leadStatusDetail(entries, mtimeMs, now);
             status = d.status;
             openTools = d.openTools;
-            name = sessionTitle(entries) || roomLabel;
+            name = s.name || sessionTitle(entries) || roomLabel;
             lastActivityAt = mtimeMs || lastActivityAt;
             transcriptMtime = mtimeMs;
           }
@@ -86,7 +119,8 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
           }
 
           // Plugin hook events are ground truth: a fresh override replaces the heuristic entirely.
-          if (tr && deps.events) status = deps.events.overrideFor(tr.sessionId, transcriptMtime) ?? status;
+          const eventId = tr?.sessionId ?? s.sessionId;
+          if (eventId && deps.events) status = deps.events.overrideFor(eventId, transcriptMtime) ?? status;
 
           const lead: Agent = {
             id: leadId, kind: 'lead', name, description: `Session in ${cwd}`, role: 'lead',

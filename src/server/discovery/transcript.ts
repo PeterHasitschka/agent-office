@@ -8,11 +8,30 @@ export const SPAWN_TOOLS = new Set(['Task', 'Agent']);
 const OPEN_TOOL_WAIT_MS = 15000;
 const RECENT_WRITE_MS = 10000;
 
-/** Newest `*.jsonl` in projects/<slug>/ written at/after (procStartMs - 5 s). */
+/** Transcript of a known session id: projects/<slug>/<sessionId>.jsonl, or null if not written yet. */
+export async function transcriptForSession(
+  claudeHome: string,
+  cwd: string,
+  sessionId: string,
+): Promise<{ sessionId: string; path: string } | null> {
+  const path = join(claudeHome, 'projects', cwdToSlug(cwd), `${sessionId}.jsonl`);
+  try {
+    if ((await stat(path)).isFile()) return { sessionId, path };
+  } catch {
+    /* not created yet */
+  }
+  return null;
+}
+
+/**
+ * Fallback guess for sessions without a session id in their meta file: newest `*.jsonl` in
+ * projects/<slug>/ written at/after (procStartMs - 5 s), skipping ids in `claimed`.
+ */
 export async function findTranscript(
   claudeHome: string,
   cwd: string,
   procStartMs: number,
+  claimed: ReadonlySet<string> = new Set(),
 ): Promise<{ sessionId: string; path: string } | null> {
   const dir = join(claudeHome, 'projects', cwdToSlug(cwd));
   let names: string[];
@@ -24,6 +43,7 @@ export async function findTranscript(
   let best: { sessionId: string; path: string; mtimeMs: number } | null = null;
   for (const name of names) {
     if (!name.endsWith('.jsonl')) continue;
+    if (claimed.has(name.slice(0, -'.jsonl'.length))) continue;
     const path = join(dir, name);
     let mtimeMs: number;
     try {

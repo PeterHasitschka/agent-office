@@ -39,10 +39,12 @@ beforeAll(() => {
 });
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
-function home(sessions: Record<number, string>) {
+function home(sessions: Record<number, string>, metas: Record<number, object> = {}) {
   const h = mkdtempSync(join(tmpdir(), 'ao-home-'));
   mkdirSync(join(h, 'sessions'));
-  for (const pid of Object.keys(sessions)) writeFileSync(join(h, 'sessions', `${pid}.json`), '{}');
+  for (const pid of Object.keys(sessions)) {
+    writeFileSync(join(h, 'sessions', `${pid}.json`), JSON.stringify(metas[Number(pid)] ?? {}));
+  }
   const probe: ProcessProbe = { isAlive: () => true, cwdOf: async (pid) => sessions[pid] ?? null };
   return { h, probe };
 }
@@ -112,10 +114,15 @@ describe('buildSnapshot', () => {
   });
 
   describe('same-cwd sessions', () => {
-    function twoSessions(pids: number[]) {
+    /** Two sessions in `plain`, each with its own transcript + one sub-agent. */
+    function twoSessions(pids: number[], withMeta = true) {
       const sessions: Record<number, string> = {};
-      for (const p of pids) sessions[p] = plain;
-      const { h, probe } = home(sessions);
+      const metas: Record<number, object> = {};
+      for (const p of pids) {
+        sessions[p] = plain;
+        if (withMeta) metas[p] = { pid: p, sessionId: p === 1 ? 'sess-a' : 'sess-b', cwd: plain };
+      }
+      const { h, probe } = home(sessions, metas);
       const dir = join(h, 'projects', cwdToSlug(plain));
       mkdirSync(dir, { recursive: true });
       for (const [sid, pid] of [['sess-a', 1], ['sess-b', 2]] as const) {
@@ -126,20 +133,48 @@ describe('buildSnapshot', () => {
         writeFileSync(join(sd, `agent-${pid}.jsonl`), '{}\n');
       }
       return { h, probe };
+    }
+
+    const check = (agents: { id: string; kind: string; name: string; parentId?: string }[]) => {
+      const leads = agents.filter((a) => a.kind === 'lead');
+      expect(leads).toHaveLength(2);
+      expect(new Set(leads.map((l) => l.id)).size).toBe(2);
+      expect(new Set(agents.map((a) => a.id)).size).toBe(agents.length);
+      const subs = agents.filter((a) => a.kind === 'sub');
+      expect(subs).toHaveLength(2);
+      for (const lead of leads) {
+        expect(subs.filter((x) => x.parentId === lead.id)).toHaveLength(1);
+      }
+      return leads;
     };
 
-    it('merges into one room, sub-agents attributed to their own lead', async () => {
+    it('meta sessionId: merges into one room, distinct leads, each sees only its own subs', async () => {
       const { h, probe } = twoSessions([1, 2]);
       const s = await buildSnapshot(opts(h, probe));
       expect(s.floors).toHaveLength(1);
       expect(s.floors[0].rooms).toHaveLength(1);
       const agents = s.floors[0].rooms[0].agents;
-      expect(agents.filter((a) => a.kind === 'lead')).toHaveLength(2);
-      for (const sub of agents.filter((a) => a.kind === 'sub')) {
-        const lead = agents.find((a) => a.id === sub.parentId)!;
-        expect(lead.kind).toBe('lead');
-        expect(sub.name).toBe(lead.id === 'sess-a' ? 't1' : 't2');
-      }
+      const leads = check(agents);
+      expect(leads.map((l) => l.id).sort()).toEqual(['sess-a', 'sess-b']);
+      expect(agents.find((a) => a.parentId === 'sess-a')!.name).toBe('t1');
+      expect(agents.find((a) => a.parentId === 'sess-b')!.name).toBe('t2');
+    });
+
+    it('fallback without sessionId never assigns one transcript to two sessions', async () => {
+      const { h, probe } = twoSessions([1, 2], false);
+      const s = await buildSnapshot(opts(h, probe));
+      const leads = check(s.floors[0].rooms[0].agents);
+      expect(leads.map((l) => l.id).sort()).toEqual(['sess-a', 'sess-b']);
+    });
+
+    it('fallback skips a transcript claimed via another session meta', async () => {
+      const { h, probe } = home({ 1: plain, 2: plain }, { 1: { sessionId: 'sess-a' } });
+      const dir = join(h, 'projects', cwdToSlug(plain));
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'sess-a.jsonl'), '{}\n');
+      const s = await buildSnapshot(opts(h, probe));
+      const ids = s.floors[0].rooms[0].agents.map((a) => a.id).sort();
+      expect(ids).toEqual(['pid:2', 'sess-a']);
     });
 
     it('one ending leaves the room live; both ending gives one ended room', async () => {
@@ -217,6 +252,29 @@ describe('buildSnapshot', () => {
       events.ingest({ hook_event_name: 'Stop', session_id: 'sess-1' }, NOW);
       s = await buildSnapshot(opts(b.h, b.probe, { now: NOW, events }));
       expect(s.floors[0].rooms[0].agents[0].status).toBe('idle');
+    });
+
+    it('meta sessionId picks its own transcript, not the newest one', async () => {
+      const { h, probe, dir } = write([{ type: 'ai-title', aiTitle: 'Mine' }], 'mine');
+      writeFileSync(join(dir, 'newer.jsonl'), JSON.stringify({ type: 'ai-title', aiTitle: 'Other' }) + '\n');
+      writeFileSync(join(h, 'sessions', '1.json'), JSON.stringify({ sessionId: 'mine', cwd: plain }));
+      const s = await buildSnapshot(opts(h, probe, { now: NOW }));
+      expect(s.floors[0].rooms[0].agents[0]).toMatchObject({ id: 'mine', name: 'Mine' });
+    });
+
+    it('meta sessionId without transcript yet -> id = sessionId, idle, no guess', async () => {
+      const { h, probe } = write([toolUse('AskUserQuestion')], 'someone-else');
+      writeFileSync(join(h, 'sessions', '1.json'), JSON.stringify({ sessionId: 'fresh' }));
+      const s = await buildSnapshot(opts(h, probe, { now: NOW }));
+      expect(s.floors[0].rooms[0].agents).toHaveLength(1);
+      expect(s.floors[0].rooms[0].agents[0]).toMatchObject({ id: 'fresh', status: 'idle', name: 'plain' });
+    });
+
+    it('lead name: meta name beats ai-title', async () => {
+      const { h, probe } = write([{ type: 'ai-title', aiTitle: 'Title' }]);
+      writeFileSync(join(h, 'sessions', '1.json'), JSON.stringify({ sessionId: 'sess-1', name: 'My session' }));
+      const s = await buildSnapshot(opts(h, probe, { now: NOW }));
+      expect(s.floors[0].rooms[0].agents[0]).toMatchObject({ id: 'sess-1', name: 'My session' });
     });
 
     it('AskUserQuestion stays waiting', async () => {
