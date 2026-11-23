@@ -13,7 +13,7 @@ const tmp = () => mkdtempSync(join(tmpdir(), 'ao-classify-'));
 describe('rules', () => {
   const cfg = loadRoleConfig(join(tmp(), 'none.json'));
   it.each([
-    ['feature-implementer', '', 'builder'],
+    ['acme-implementer', '', 'builder'],
     ['x-code-reviewer', '', 'critic'],
     ['story-tester', '', 'lab'],
     ['Explore', '', 'detective'],

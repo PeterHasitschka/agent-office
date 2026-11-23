@@ -1,18 +1,34 @@
 {
   "name": "agent-office",
   "version": "0.1.0",
-  "description": "Pixel-art office visualizing running Claude Code agents",
+  "description": "Pixel-art office that shows your running Claude Code sessions and sub-agents",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "agents",
+    "visualization",
+    "pixel-art",
+    "dashboard"
+  ],
+  "license": "MIT",
   "type": "module",
   "bin": {
     "agent-office": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "plugin",
+    ".claude-plugin",
+    "roles"
+  ],
   "scripts": {
     "test": "vitest run",
     "build": "node build.mjs",
     "dev": "tsx src/server/cli.ts",
     "laya": "tsx src/server/cli.ts laya",
     "start:all": "tsx src/server/cli.ts --with-laya --open",
-    "demo": "tsx src/server/cli.ts --demo --open"
+    "demo": "tsx src/server/cli.ts --demo --open",
+    "prepublishOnly": "npm run build && npm test"
   },
   "engines": {
     "node": ">=20"
