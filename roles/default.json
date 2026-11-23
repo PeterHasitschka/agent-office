@@ -1,0 +1,128 @@
+{
+  "roles": {
+    "builder": {
+      "label": "Builder – implementiert Code",
+      "description": "implementiert Code",
+      "laya": "Implements code: writes features, builds things.",
+      "keywords": [
+        "implement",
+        "builder",
+        "coder"
+      ]
+    },
+    "critic": {
+      "label": "Kritiker – reviewt Code",
+      "description": "reviewt Code",
+      "laya": "Reviews code and changes, gives critique.",
+      "keywords": [
+        "review"
+      ]
+    },
+    "lab": {
+      "label": "Laborant – testet",
+      "description": "testet",
+      "laya": "Writes and runs tests, does QA.",
+      "keywords": [
+        "test",
+        "qa"
+      ]
+    },
+    "detective": {
+      "label": "Detektiv – recherchiert/sucht",
+      "description": "recherchiert/sucht",
+      "laya": "Explores, researches, searches and fetches information.",
+      "keywords": [
+        "explore",
+        "research",
+        "search",
+        "fetch"
+      ]
+    },
+    "archivist": {
+      "label": "Archivar – verwaltet Notizen/Gedächtnis",
+      "description": "verwaltet Notizen/Gedächtnis",
+      "laya": "Manages notes, memory and stories.",
+      "keywords": [
+        "memory",
+        "story",
+        "notes",
+        "obsidian"
+      ]
+    },
+    "strategist": {
+      "label": "Stratege – plant/architektiert",
+      "description": "plant/architektiert",
+      "laya": "Plans, designs architecture, brainstorms.",
+      "keywords": [
+        "plan",
+        "architect",
+        "brainstorm"
+      ]
+    },
+    "doctor": {
+      "label": "Doktor – debuggt",
+      "description": "debuggt",
+      "laya": "Debugs and diagnoses problems, fixes bugs.",
+      "keywords": [
+        "debug",
+        "diagnos",
+        "fix bug"
+      ]
+    },
+    "guard": {
+      "label": "Wachmann – Security",
+      "description": "Security",
+      "laya": "Security reviews and audits.",
+      "keywords": [
+        "security",
+        "audit"
+      ]
+    },
+    "artist": {
+      "label": "Künstler – designt UI",
+      "description": "designt UI",
+      "laya": "Designs user interfaces and frontend visuals.",
+      "keywords": [
+        "design",
+        "figma",
+        "ui",
+        "frontend"
+      ]
+    },
+    "poet": {
+      "label": "Poet – schreibt Texte/Doku",
+      "description": "schreibt Texte/Doku",
+      "laya": "Writes prose, documentation, blog posts and commit messages.",
+      "keywords": [
+        "writ",
+        "pr-writer",
+        "docs",
+        "blog",
+        "commit"
+      ]
+    },
+    "janitor": {
+      "label": "Hausmeister – Ops/Infrastruktur",
+      "description": "Ops/Infrastruktur",
+      "laya": "Handles ops, deployment, configuration and cleanup.",
+      "keywords": [
+        "deploy",
+        "ops",
+        "config",
+        "cleanup",
+        "bash"
+      ]
+    },
+    "secretary": {
+      "label": "Sekretär – Mail/Kalender/Orga",
+      "description": "Mail/Kalender/Orga",
+      "laya": "Handles mail, calendar, todos and scheduling.",
+      "keywords": [
+        "mail",
+        "calendar",
+        "todo",
+        "time"
+      ]
+    }
+  }
+}
