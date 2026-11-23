@@ -1,7 +1,7 @@
 // Hover hit-testing (pure) + the pixel-styled tooltip DOM element.
 import type { Agent, RoleId, Status } from '../shared/types.js';
 import type { Actor } from './scene.js';
-import { SPRITE_W, SPRITE_H } from './sprites.js';
+import { SPRITE_W, SPRITE_H, knownRole } from './sprites.js';
 
 export const STATUS_LABEL: Record<Status, string> = {
   busy: 'arbeitet', idle: 'wartet', waiting: 'wartet auf dich', done: 'schläft',
@@ -26,10 +26,11 @@ export function hitTest(actors: Actor[], px: number, py: number): Actor | null {
 
 export function formatTooltip(a: Agent, now: number): { title: string; lines: string[] } {
   const mins = Math.max(0, Math.floor((now - a.startedAt) / 60_000));
-  const lines = [ROLE_LABEL[a.role] ?? a.role];
+  const role = ROLE_LABEL[knownRole(a.role)];
+  const lines = [role];
   if (a.description) lines.push(a.description);
   lines.push(STATUS_LABEL[a.status], `seit ${mins} min`);
-  return { title: a.name || ROLE_LABEL[a.role], lines };
+  return { title: a.name || role, lines };
 }
 
 /** Small DOM tooltip (styled in index.html via #tooltip). */

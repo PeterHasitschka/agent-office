@@ -30,6 +30,14 @@ describe('hitTest', () => {
 });
 
 describe('formatTooltip', () => {
+  it('unknown role shows the intern label', () => {
+    for (const bogus of ['wizard', 'constructor']) {
+      const t = formatTooltip(ag('x', { role: bogus as Agent['role'], name: '' }), 0);
+      expect(t.lines[0]).toBe('Praktikant');
+      expect(t.title).toBe('Praktikant');
+    }
+  });
+
   const now = 1_000_000_000;
   it('uses the name as title and lists role, description, status, age', () => {
     const t = formatTooltip(ag('x', { startedAt: now - 12 * 60_000 - 5_000 }), now);

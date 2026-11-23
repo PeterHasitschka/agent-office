@@ -19,9 +19,11 @@ Requires Node 20 or newer. If the port is taken, pick another with `--port`. Oth
 
 agent-office reads `~/.claude` read-only:
 
-- live `claude` processes (to find running sessions and their working directories),
+- live `claude` processes and their session files in `~/.claude/sessions/` (session id, working directory and session name),
 - session transcripts (what the agent is doing right now),
 - sub-agent meta files (name and description of each sub-agent, used for role detection).
+
+The lead figure of a room is named after the Claude Code session name when one is available (the name you set, or the one Claude Code derives), otherwise after the transcript's title, otherwise after the room.
 
 From these it derives a status per figure (working, waiting for you, finished, sleeping) using heuristics, for example how recently the transcript was written and whether the last message is a question or a pending tool call. The snapshot is pushed to the browser over a local stream.
 
@@ -47,11 +49,13 @@ A sub-agent's role is picked from its name and description by keyword rules. Any
 | `secretary` | blouse, headset | mail, calendar, todo, time |
 | `intern` | plain tee, coffee | fallback |
 
-Keywords match at the start of a word (so `ui` does not match `build`) and as prefixes (`review` matches `reviewer`). The defaults live in `roles/default.json`.
+Keywords match at the start of a word (so `ui` does not match `build`) and as prefixes (`review` matches `reviewer`). The defaults live in `roles/default.json`. The agent name is checked first, then the description; within each, the first role that matches wins, in the order roles appear in `roles/default.json` (builder, critic, lab, detective, archivist, strategist, doctor, guard, artist, poet, janitor, secretary).
 
 ### Customizing roles
 
-Create `~/.config/agent-office/roles.json`. Roles are replaced per id; you can override `keywords`, `label`, `description` and `laya` (the description used by the classifier). Unknown role ids are ignored, and a broken file is ignored too.
+Create `~/.config/agent-office/roles.json`. Roles are replaced per id; you can override `keywords`, `label`, `description` and `laya` (the description used by the classifier). Unknown role ids are ignored, and a broken file is ignored too. Overriding a role keeps its position in the match order.
+
+Keywords are regular-expression fragments (case-insensitive), so characters such as `+`, `.`, `(` or `?` must be escaped: write `"c\\+\\+"` in JSON for `c++`. A role whose keywords do not form a valid pattern is skipped.
 
 ```json
 {
@@ -64,7 +68,7 @@ Create `~/.config/agent-office/roles.json`. Roles are replaced per id; you can o
 
 ## Optional: Laya classifier
 
-Keyword rules always run first. Only agents they cannot place go to [Laya](https://pypi.org/project/laya/), a local zero-shot text classifier. Treat it as a hint: zero-shot accuracy is limited, and results below the confidence threshold fall back to `intern`.
+Laya is **off by default**: agent-office sends no request to it unless you start with `--with-laya` or set `LAYA_URL` explicitly. Keyword rules always run first. Only agents they cannot place go to [Laya](https://pypi.org/project/laya/), a local zero-shot text classifier. Treat it as a hint: zero-shot accuracy is limited, and results below the confidence threshold fall back to `intern`.
 
 ```sh
 npx agent-office laya        # run the Laya server on its own
@@ -76,11 +80,11 @@ Requires [`uv`](https://docs.astral.sh/uv/) (`brew install uv`). Environment var
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `LAYA_URL` | `http://127.0.0.1:8000` | where agent-office finds the Laya server |
+| `LAYA_URL` | unset (`http://127.0.0.1:8000` with `--with-laya`) | where agent-office finds the Laya server; setting it enables Laya |
 | `LAYA_MODEL` | server default | model name sent to Laya |
 | `LAYA_THRESHOLD` | `0.5` | minimum confidence to accept a Laya result |
 
-If Laya is not running, agent-office simply uses the keyword rules.
+If you run `laya-serve` yourself (e.g. `npx agent-office laya` in another terminal), set `LAYA_URL` so agent-office uses it. agent-office checks `GET /health` every 60 s and only uses Laya while that answers with a 2xx status. If Laya is not running, agent-office simply uses the keyword rules.
 
 ## Plugin (exact status)
 
@@ -116,7 +120,9 @@ The script needs `sh` and `curl`; `jq` is used if present but not required.
 
 - The server binds to `127.0.0.1` only and checks the `Host` and `Origin` headers, so other machines and other websites cannot talk to it.
 - `~/.claude` is only read, never written.
-- No telemetry, no analytics, no network calls to third parties. Nothing leaves your machine, except the optional requests to a Laya server you run locally.
+- No telemetry, no analytics, no network calls to third parties. Nothing leaves your machine.
+- Laya is off unless you enable it (`--with-laya` or `LAYA_URL`). When enabled, sub-agent names and descriptions are sent to that Laya server, which normally runs locally.
+- `--with-laya` and `agent-office laya` run `uvx`, which on first use downloads the `laya` package and its dependencies from PyPI and the classifier model from Hugging Face. After that they run from the local cache.
 - The app writes only a port file in `~/.config/agent-office/` and a role cache in `~/.cache/agent-office/`.
 
 ## Known limits

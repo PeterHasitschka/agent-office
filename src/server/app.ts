@@ -88,3 +88,15 @@ export function startLayaProbe(laya: GatedLaya, everyMs = 60_000): { stop(): voi
   t.unref();
   return { stop: () => clearInterval(t), ready };
 }
+
+export const DEFAULT_LAYA_URL = 'http://127.0.0.1:8000';
+
+/**
+ * Laya is opt-in: enabled only with `--with-laya` or an explicitly set LAYA_URL.
+ * Returns null otherwise, so no client is constructed and no request is ever sent.
+ */
+export function layaUrl(withLaya: boolean, env: NodeJS.ProcessEnv): string | null {
+  const explicit = env.LAYA_URL?.trim();
+  if (explicit) return explicit;
+  return withLaya ? DEFAULT_LAYA_URL : null;
+}

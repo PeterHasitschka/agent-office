@@ -149,7 +149,13 @@ function zzz(p: Px, f: number): void {
 
 // ---------------------------------------------------------------- public API
 
+/** The role itself if it has a look, else 'intern' (server may send a role this build doesn't know). */
+export function knownRole(role: string): RoleId {
+  return Object.hasOwn(ROLE_LOOKS, role) ? (role as RoleId) : 'intern';
+}
+
 export function drawChibi(ctx: CanvasRenderingContext2D, x: number, y: number, role: RoleId, pose: Pose, frame: number): void {
+  role = knownRole(role);
   const f = wrap(frame);
   const s: S = { pose, f };
   const look = ROLE_LOOKS[role];
@@ -385,5 +391,5 @@ const PROPS: Record<RoleId, PropFn> = {
 };
 
 export function drawDeskProp(ctx: CanvasRenderingContext2D, x: number, y: number, role: RoleId, pose: Pose, frame: number): void {
-  PROPS[role](makePen(ctx, x, y), { pose, f: wrap(frame) });
+  PROPS[knownRole(role)](makePen(ctx, x, y), { pose, f: wrap(frame) });
 }

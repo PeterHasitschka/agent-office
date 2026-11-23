@@ -40,7 +40,7 @@ export function loadRoleConfig(userOverridePath: string = DEFAULT_OVERRIDE_PATH)
   const over = readJson(userOverridePath);
   if (over && typeof over.roles === 'object' && over.roles) {
     for (const [id, def] of Object.entries<any>(over.roles)) {
-      if (!roles[id] || !def || typeof def !== 'object') continue;
+      if (!Object.hasOwn(roles, id) || !def || typeof def !== 'object') continue;
       const next = { ...roles[id] };
       if (Array.isArray(def.keywords) && def.keywords.every((k: unknown) => typeof k === 'string')) next.keywords = def.keywords;
       if (typeof def.label === 'string') next.label = def.label;

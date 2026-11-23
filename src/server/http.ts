@@ -13,7 +13,8 @@ export interface ServerOpts {
 
 export type AppServer = http.Server & { publish(snapshot: Snapshot): void };
 
-const MAX_BODY = 64 * 1024;
+const MAX_BODY = 256 * 1024; // PreToolUse payloads carry full tool input (e.g. big Write contents)
+const MAX_DRAIN = 8 * MAX_BODY;
 const HEARTBEAT_MS = 15_000;
 
 const TYPES: Record<string, string> = {
@@ -56,19 +57,27 @@ async function serveStatic(webDir: string, urlPath: string, res: http.ServerResp
   }
 }
 
+/** Resolves with the body, or null if it exceeds MAX_BODY (the rest is discarded so a 413 can be delivered). */
 function readBody(req: http.IncomingMessage): Promise<string | null> {
   return new Promise((resolveBody) => {
+    const declared = Number(req.headers['content-length']);
+    let tooBig = Number.isFinite(declared) && declared > MAX_BODY;
     const chunks: Buffer[] = [];
     let size = 0;
+    if (tooBig) resolveBody(null);
     req.on('data', (c: Buffer) => {
       size += c.length;
+      if (tooBig) {
+        if (size > MAX_DRAIN) req.destroy(); // don't drain forever
+        return;
+      }
       if (size > MAX_BODY) {
+        tooBig = true;
         chunks.length = 0;
         resolveBody(null);
-        req.destroy();
       } else chunks.push(c);
     });
-    req.on('end', () => resolveBody(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => resolveBody(tooBig ? null : Buffer.concat(chunks).toString('utf8')));
     req.on('error', () => resolveBody(null));
   });
 }
@@ -104,7 +113,7 @@ export function createServer(opts: ServerOpts): AppServer {
         }
         const body = await readBody(req);
         if (body === null) {
-          if (!res.writableEnded) res.writeHead(413).end();
+          if (!res.writableEnded) res.writeHead(413, { connection: 'close' }).end('payload too large');
           return;
         }
         let parsed: unknown;

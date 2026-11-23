@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Snapshot } from '../shared/types.js';
-import { GatedLaya, startLayaProbe, startPolling } from './app.js';
+import { GatedLaya, layaUrl, startLayaProbe, startPolling } from './app.js';
 import { DEFAULT_CACHE_PATH, RoleClassifier } from './classify/index.js';
 import { loadRoleConfig } from './classify/rules.js';
 import { demoSnapshot } from './demo.js';
@@ -110,14 +110,18 @@ async function serve(args: CliArgs): Promise<void> {
     let tick = 0;
     rebuild = async () => demoSnapshot(Date.now(), tick++);
   } else {
-    const gated = new GatedLaya({ url: process.env.LAYA_URL || 'http://127.0.0.1:8000', model: process.env.LAYA_MODEL || undefined });
+    const url = layaUrl(args.withLaya, process.env);
+    const gated = url ? new GatedLaya({ url, model: process.env.LAYA_MODEL || undefined }) : null;
     const threshold = Number(process.env.LAYA_THRESHOLD);
     const classifier = new RoleClassifier(
       loadRoleConfig(), gated, DEFAULT_CACHE_PATH, process.env.LAYA_THRESHOLD && Number.isFinite(threshold) ? threshold : 0.5,
     );
-    const probe = startLayaProbe(gated);
-    layaReady = probe.ready;
-    cleanups.push(probe.stop, () => classifier.flush());
+    if (gated) {
+      const probe = startLayaProbe(gated);
+      layaReady = probe.ready;
+      cleanups.push(probe.stop);
+    }
+    cleanups.push(() => classifier.flush());
     const floorOrder = new Map<string, number>();
     const recent: RecentRooms = new Map();
     rebuild = () => buildSnapshot({ claudeHome: args.claudeHome, roles: classifier, floorOrder, recent, events });
@@ -193,7 +197,7 @@ async function main(argv: string[]): Promise<void> {
   } else if (args.cmd === 'plugin') {
     const dir = packageDir();
     console.log(
-      `Plugin installieren (in Claude Code):\n  /plugin marketplace add ${dir}\n  /plugin install agent-office\n\n` +
+      `Plugin installieren (in Claude Code):\n  /plugin marketplace add ${dir}\n  /plugin install agent-office@agent-office\n\n` +
         'Das Plugin sendet Hook-Events an den lokalen Server (Port aus AGENT_OFFICE_PORT, server.json oder 4242).',
     );
   } else await serve(args);

@@ -155,4 +155,13 @@ describe('drawDeskProp', () => {
       expect(key(prop(role, 'sleep', 0)), role).not.toBe(key(prop(role, 'work', 0)));
     }
   });
+
+  it('unknown role string falls back to the intern look (chibi + prop)', () => {
+    for (const bogus of ['wizard', 'constructor', '__proto__']) {
+      const r = bogus as RoleId;
+      expect(() => chibi(r, 'work', 0)).not.toThrow();
+      expect(key(chibi(r, 'work', 1))).toBe(key(chibi('intern', 'work', 1)));
+      expect(key(prop(r, 'sleep', 2))).toBe(key(prop('intern', 'sleep', 2)));
+    }
+  });
 });

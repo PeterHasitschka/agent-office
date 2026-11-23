@@ -101,10 +101,24 @@ describe('LayaClient', () => {
     expect(await new LayaClient({ url: url2 }).classify('x', cfg)).toBeNull();
     expect(await new LayaClient({ url: 'http://127.0.0.1:1' }).classify('x', cfg)).toBeNull();
   });
+  it('inherited object keys are not valid labels', async () => {
+    for (const label of ['constructor', 'toString', '__proto__']) {
+      srv?.close();
+      const url = await stub(okReply(label, 0.9));
+      expect(await new LayaClient({ url }).classify('x', cfg)).toBeNull();
+    }
+  });
   it('probe reflects reachability', async () => {
-    const url = await stub((_b, res) => res.end('{}'));
+    let path = '';
+    const url = await stub((b, res) => { path = b.url; res.end('{"status":"ok"}'); });
     expect(await new LayaClient({ url }).probe()).toBe(true);
+    expect(path).toBe('/health');
     expect(await new LayaClient({ url: 'http://127.0.0.1:1' }).probe()).toBe(false);
+  });
+  it('probe: non-2xx (e.g. unrelated dev server 404) -> unreachable', async () => {
+    srv?.close();
+    const url = await stub((_b, res) => { res.statusCode = 404; res.end('nope'); });
+    expect(await new LayaClient({ url }).probe()).toBe(false);
   });
 });
 

@@ -91,13 +91,30 @@ describe('http', () => {
     expect(res.status).toBe(204);
   });
 
+  it('POST /api/events: accepts ~200 KB events (big PreToolUse inputs)', async () => {
+    const { base, events } = await start();
+    const spy = vi.spyOn(events, 'ingest');
+    const body = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 's', tool_input: { content: 'x'.repeat(200_000) } });
+    expect((await fetch(base + '/api/events', { method: 'POST', body })).status).toBe(204);
+    expect(spy).toHaveBeenCalled();
+  });
+
   it('POST /api/events: invalid JSON -> 400, oversized -> 413', async () => {
     const { base, events } = await start();
     const spy = vi.spyOn(events, 'ingest');
     expect((await fetch(base + '/api/events', { method: 'POST', body: '{nope' })).status).toBe(400);
     expect((await fetch(base + '/api/events', { method: 'POST', body: 'null' })).status).toBe(400);
-    const big = await fetch(base + '/api/events', { method: 'POST', body: 'x'.repeat(70_000) }).then((r) => r.status, () => 'reset');
-    expect([413, 'reset']).toContain(big);
+    const big = await fetch(base + '/api/events', { method: 'POST', body: 'x'.repeat(300_000) });
+    expect(big.status).toBe(413);
+    // chunked upload without content-length also gets a real 413
+    const stream = new ReadableStream({
+      start(c) {
+        for (let i = 0; i < 6; i++) c.enqueue(new TextEncoder().encode('x'.repeat(64 * 1024)));
+        c.close();
+      },
+    });
+    const chunked = await fetch(base + '/api/events', { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
+    expect(chunked.status).toBe(413);
     expect(spy).not.toHaveBeenCalled();
   });
 

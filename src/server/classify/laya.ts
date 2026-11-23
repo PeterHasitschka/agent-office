@@ -18,11 +18,12 @@ export class LayaClient {
     this.timeoutMs = opts.timeoutMs ?? 2000;
   }
 
+  /** GET /health (laya-serve's liveness route); only a 2xx counts as reachable. */
   async probe(): Promise<boolean> {
     try {
-      const res = await fetch(this.url + '/', { signal: AbortSignal.timeout(this.timeoutMs) });
+      const res = await fetch(this.url + '/health', { signal: AbortSignal.timeout(this.timeoutMs) });
       await res.body?.cancel();
-      return true;
+      return res.ok;
     } catch {
       return false;
     }
@@ -50,7 +51,7 @@ export class LayaClient {
       const a = j?.answers?.role;
       const label = a?.choice;
       const confidence = Number(a?.confidence);
-      if (typeof label !== 'string' || !(label in choices) || !Number.isFinite(confidence)) return null;
+      if (typeof label !== 'string' || !Object.hasOwn(choices, label) || !Number.isFinite(confidence)) return null;
       return { role: label as RoleId, confidence };
     } catch {
       return null;

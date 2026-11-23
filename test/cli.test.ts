@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GatedLaya, startPolling } from '../src/server/app.js';
+import { DEFAULT_LAYA_URL, GatedLaya, layaUrl, startPolling } from '../src/server/app.js';
 import { parseArgs } from '../src/server/cli.js';
 import type { Snapshot } from '../src/shared/types.js';
 
@@ -71,5 +71,20 @@ describe('GatedLaya', () => {
     expect(await g.classify('x', { roles: {} } as any)).toBeNull();
     expect(f).not.toHaveBeenCalled();
     f.mockRestore();
+  });
+});
+
+describe('layaUrl (opt-in)', () => {
+  it('off without --with-laya and without LAYA_URL: no client, no fetch', () => {
+    const f = vi.spyOn(globalThis, 'fetch');
+    expect(layaUrl(false, {})).toBeNull();
+    expect(layaUrl(false, { LAYA_URL: '  ' })).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+    f.mockRestore();
+  });
+  it('--with-laya uses default URL; explicit LAYA_URL always wins', () => {
+    expect(layaUrl(true, {})).toBe(DEFAULT_LAYA_URL);
+    expect(layaUrl(false, { LAYA_URL: 'http://127.0.0.1:9000' })).toBe('http://127.0.0.1:9000');
+    expect(layaUrl(true, { LAYA_URL: 'http://127.0.0.1:9000' })).toBe('http://127.0.0.1:9000');
   });
 });
