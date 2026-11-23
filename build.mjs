@@ -33,6 +33,19 @@ if (await exists('src/web/main.ts')) {
   console.log('skip: src/web/main.ts not present yet');
 }
 
+// dev-only sprite sheet (harmless to ship): /sprite-sheet.html
+if (await exists('src/web/sprite-sheet.ts')) {
+  await build({
+    entryPoints: ['src/web/sprite-sheet.ts'],
+    outfile: 'dist/web/sprite-sheet.js',
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    target: 'es2022',
+  });
+  await cp('src/web/sprite-sheet.html', 'dist/web/sprite-sheet.html');
+}
+
 if (await exists('src/web/index.html')) await cp('src/web/index.html', 'dist/web/index.html');
 else console.log('skip: src/web/index.html not present yet');
 
