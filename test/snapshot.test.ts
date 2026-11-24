@@ -11,6 +11,7 @@ import { cwdToSlug } from '../src/server/util/slug';
 import type { ProcessProbe } from '../src/server/discovery/processes';
 import { loadIgnoreCommands } from '../src/server/discovery/skills';
 import type { SkillCategory } from '../src/shared/types';
+import { ShellTracker } from '../src/server/discovery/shells';
 
 const roles: RoleSource = { roleFor: () => 'builder' };
 const skillCalls: Array<[string, string]> = [];
@@ -433,6 +434,61 @@ describe('active skills and staff personas', () => {
     const agents = await agentsOf(a.h, a.probe, { roles: internRoles });
     expect(agents.find((x) => x.name === 'checker')!.role).toBe('critic');
     expect(agents.find((x) => x.name === 'helper')).toMatchObject({ role: 'intern', activeSkill: { name: 'acme:brew', category: 'other' } });
+  });
+});
+
+describe('background shells', () => {
+  const NOW = Date.now();
+  const iso = (agoMs: number) => new Date(NOW - agoMs).toISOString();
+  const start = (n: string, agoMs: number) => [
+    { type: 'assistant', timestamp: iso(agoMs), message: { id: `m${n}`, role: 'assistant', content: [{ type: 'tool_use', id: `u${n}`, name: 'Bash', input: { command: 'npm run dev', description: `Shell ${n}`, run_in_background: true } }] } },
+    { type: 'user', timestamp: iso(agoMs), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `u${n}`, content: 'bg' }] }, toolUseResult: { backgroundTaskId: `b${n}` } },
+  ];
+  const end = (n: string, status: string, agoMs: number) => ({
+    type: 'queue-operation', operation: 'enqueue', timestamp: iso(agoMs),
+    content: `<task-notification>\n<task-id>b${n}</task-id>\n<status>${status}</status>\n</task-notification>`,
+  });
+  const jsonl = (lines: unknown[]) => lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
+
+  function setup(lead: unknown[], meta: object, subs: Array<{ id: string; lines: unknown[]; finished?: boolean }> = []) {
+    const { h, probe } = home({ 1: plain }, { 1: { sessionId: 'sess-1', ...meta } });
+    const dir = join(h, 'projects', cwdToSlug(plain));
+    const sd = join(dir, 'sess-1', 'subagents');
+    mkdirSync(sd, { recursive: true });
+    writeFileSync(join(dir, 'sess-1.jsonl'), jsonl(lead));
+    for (const x of subs) {
+      writeFileSync(join(sd, `agent-${x.id}.meta.json`), JSON.stringify({ agentType: x.id, description: x.id, ...(x.finished ? { finished: true } : {}) }));
+      writeFileSync(join(sd, `agent-${x.id}.jsonl`), jsonl(x.lines));
+    }
+    return { h, probe };
+  }
+  const agentsOf = async (h: string, probe: ProcessProbe, shells?: ShellTracker) =>
+    (await buildSnapshot(opts(h, probe, { now: NOW, ...(shells ? { shells } : {}) }))).floors[0].rooms[0].agents;
+
+  it('lead and running sub-agent report their open shells; a finished sub-agent reports none', async () => {
+    const { h, probe } = setup(
+      [...start('1', 600_000), ...start('2', 300_000), end('2', 'completed', 200_000), ...start('3', 100_000), end('3', 'failed', 50_000)],
+      {},
+      [{ id: 'runner', lines: start('4', 60_000) }, { id: 'gone', lines: start('5', 60_000), finished: true }],
+    );
+    const agents = await agentsOf(h, probe, new ShellTracker());
+    const lead = agents[0];
+    expect(lead.shells).toEqual([{ label: 'Shell 1', startedAt: NOW - 600_000 }]);
+    expect(lead.shellFailedAt).toBe(NOW - 50_000);
+    expect(agents.find((a) => a.name === 'runner')!.shells).toEqual([{ label: 'Shell 4', startedAt: NOW - 60_000 }]);
+    expect(agents.find((a) => a.name === 'gone')!.shells).toBeUndefined();
+  });
+
+  it('drops shells started before the current process (resumed session)', async () => {
+    const { h, probe } = setup([...start('1', 3_600_000), ...start('2', 60_000)], { procStart: iso(600_000) });
+    const [lead] = await agentsOf(h, probe, new ShellTracker());
+    expect(lead.shells?.map((x) => x.label)).toEqual(['Shell 2']);
+  });
+
+  it('reports no shells without a tracker', async () => {
+    const { h, probe } = setup(start('1', 60_000), {});
+    const [lead] = await agentsOf(h, probe);
+    expect(lead.shells).toBeUndefined();
   });
 });
 

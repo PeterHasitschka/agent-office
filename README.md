@@ -116,6 +116,12 @@ Sub-agents of the same type in one session are one recurring employee, not a new
 - An instance that has not written anything for more than 30 minutes counts as ended (crashed or aborted); otherwise a dead sub-agent would block its slot forever. Pauses under 30 minutes still count as the same running agent: it keeps its own figure and shows as idle, not done.
 - A persona goes home after its last run has been finished for 30 minutes.
 
+## Background shells
+
+When an agent runs a command in the background (a dev server, a test watcher, a log tail), a small monitor appears under its desk, one per running shell. Three monitors fit; with more, the third one glows amber. When a background shell ends with status `failed`, a red screen flashes for a few seconds. The tooltip lists the running shells with their description (or the shortened command) and how long they have been running.
+
+A shell counts as running from the moment Claude Code reports it as backgrounded until a completion notification (`completed`, `failed`, `killed`, `stopped`) or a `TaskStop` call shows up in the transcript. Because a dev server can run for hours, agent-office reads each transcript completely once and then only the appended part. Shells of a finished sub-agent are not shown, and for a resumed session only shells started by the current process count.
+
 ## Optional: Laya classifier
 
 Laya is **off by default**: agent-office sends no request to it unless you start with `--with-laya` or set `LAYA_URL` explicitly. Keyword rules always run first. Only agents they cannot place go to [Laya](https://pypi.org/project/laya/), a local zero-shot text classifier. Treat it as a hint: zero-shot accuracy is limited, and results below the confidence threshold fall back to `intern`.
@@ -181,6 +187,7 @@ The script needs `sh` and `curl`; `jq` is used if present but not required.
 - macOS and Linux only.
 - Without the plugin, heuristics may misjudge long-running tools (a quiet transcript looks like "finished").
 - Role detection is a best guess from names and descriptions, and so is the skill category.
+- A background shell whose process dies without Claude Code noticing keeps its monitor until the session ends.
 
 ## Development
 

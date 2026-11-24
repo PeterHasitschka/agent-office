@@ -22,6 +22,8 @@ interface SubDef {
   skill?: SkillDef;
   /** staff persona: done/busy alternating every 6 ticks, one more run per busy phase */
   staff?: boolean;
+  /** running background shells */
+  shells?: string[];
 }
 
 interface RoomDef {
@@ -32,6 +34,10 @@ interface RoomDef {
   leadShift: number;
   /** skill (e.g. from a slash command) in use while the lead is busy or waiting */
   leadSkill?: SkillDef;
+  /** lead's running background shells */
+  leadShells?: string[];
+  /** a lead shell fails every few ticks (red flashing monitor) */
+  leadShellFails?: boolean;
   subs: SubDef[];
   ended?: boolean;
 }
@@ -39,6 +45,7 @@ interface RoomDef {
 const ROOMS: RoomDef[] = [
   {
     floor: 'pixel-bakery', name: 'pixel-bakery', branch: 'main', lead: 'Teig-Rezepte ins Menü einbauen', leadShift: 0,
+    leadShells: ['Start bakery dev server', 'Watch unit tests'],
     subs: [
       { type: 'general-purpose', desc: 'Implement the sourdough ordering form', role: 'builder', status: 'busy', rotate: 0 },
       { type: 'Explore', desc: 'Find where croissant prices are defined', role: 'detective', status: 'busy', rotate: 1 },
@@ -56,6 +63,7 @@ const ROOMS: RoomDef[] = [
   },
   {
     floor: 'rocket-lab', name: 'rocket-lab', branch: 'main', lead: 'Startsequenz planen', leadShift: 2,
+    leadShells: ['Start mission control UI', 'Run telemetry simulator', 'Tail launch logs', 'Start mock fuel API'],
     leadSkill: { name: 'launch-checklist', category: 'running' }, // invented slash command
     subs: [
       { type: 'ui-designer', desc: 'Design the countdown screen mockup and icons', role: 'artist', status: 'busy', rotate: 0,
@@ -71,13 +79,14 @@ const ROOMS: RoomDef[] = [
     leadSkill: { name: 'acme:debug-detective', category: 'debugging' },
     subs: [
       { type: 'debugger', desc: 'Diagnose and fix the failing fuel gauge bug', role: 'doctor', status: 'busy', rotate: 3,
-        skill: { name: 'acme:debug-detective', category: 'debugging' } },
+        skill: { name: 'acme:debug-detective', category: 'debugging' }, shells: ['Replay fuel sensor data'] },
       { type: 'security-auditor', desc: 'Audit permissions and secrets for vulnerabilities', role: 'guard', status: 'waiting', rotate: 0,
         skill: { name: 'acme:audit-trail', category: 'review' } },
     ],
   },
   {
     floor: 'todo-app', name: 'todo-app', branch: 'main', lead: 'Erinnerungen synchronisieren', leadShift: 1,
+    leadShells: ['Start sync worker'], leadShellFails: true,
     subs: [
       { type: 'secretary', desc: 'Update the changelog and file the release notes', role: 'secretary', status: 'busy', rotate: 1 },
       { type: 'Explore', desc: 'Look up how reminders are stored', role: 'detective', status: 'done' },
@@ -102,6 +111,9 @@ function staffState(tick: number) {
   return { status: (cycle % 2 === 1 ? 'busy' : 'done') as Status, runs, recentTasks };
 }
 
+const shellsFor = (labels: string[] | undefined, now: number): { shells?: { label: string; startedAt: number }[] } =>
+  labels?.length ? { shells: labels.map((label, i) => ({ label, startedAt: now - (25 - i * 7) * MIN })) } : {};
+
 const skillFor = (def: SkillDef | undefined, ok: boolean, since: number): { activeSkill?: ActiveSkill } =>
   def && ok ? { activeSkill: { ...def, since } } : {};
 
@@ -121,6 +133,8 @@ export function demoSnapshot(now: number, tick: number): Snapshot {
         status: leadStatus,
         startedAt: now - (40 + ri * 7) * MIN, lastActivityAt: now - (tick % 4) * 5000,
         ...skillFor(def.leadSkill, leadStatus === 'busy' || leadStatus === 'waiting', now - (4 + ri) * MIN),
+        ...shellsFor(def.leadShells, now),
+        ...(def.leadShellFails && tick % 8 === 0 ? { shellFailedAt: now } : {}),
       });
       def.subs.forEach((s, si) => {
         const staff = s.staff ? staffState(tick) : null;
@@ -135,6 +149,7 @@ export function demoSnapshot(now: number, tick: number): Snapshot {
           parentId: leadId,
           ...skillFor(s.skill, status === 'busy', now - (2 + si) * MIN),
           runs: staff?.runs ?? 1, recentTasks,
+          ...(status === 'done' ? {} : shellsFor(s.shells, now)),
         });
       });
       // The lifecycle extra: a short-lived intern in the first room.

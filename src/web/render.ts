@@ -95,7 +95,7 @@ export function startRenderer(canvas: HTMLCanvasElement, getState: () => { layou
       drawFloorBase(ctx, l, f, env, i);
       drawFloorSign(ctx, f);
       for (const r of f.rooms) drawRoom(ctx, r, env);
-      for (const r of f.rooms) drawDesks(ctx, r, byId, frame);
+      for (const r of f.rooms) drawDesks(ctx, r, byId, frame, Date.now()); // shellFailedAt is wall-clock time
       for (const r of f.rooms) { drawRoomShade(ctx, r, env); drawRoomSign(ctx, r); }
       drawSkillRoom(ctx, f, env);
       drawSkillMachines(ctx, f, byId, frame, env);

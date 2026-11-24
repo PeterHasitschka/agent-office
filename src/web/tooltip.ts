@@ -27,6 +27,8 @@ export function hitTest(actors: Actor[], px: number, py: number): Actor | null {
 const minsSince = (t: number, now: number) => Math.max(0, Math.floor((now - t) / 60_000));
 export const TASK_BULLET = '– ';
 export const SKILL_PREFIX = 'Skill: ';
+export const SHELL_PREFIX = '▸ ';
+const MAX_SHELL_LINES = 3;
 
 export function formatTooltip(a: Agent, now: number): { title: string; lines: string[] } {
   const role = ROLE_LABEL[knownRole(a.role)];
@@ -38,6 +40,12 @@ export function formatTooltip(a: Agent, now: number): { title: string; lines: st
     for (const t of tasks.slice(0, 3)) lines.push(TASK_BULLET + t);
   } else if (a.description) lines.push(a.description);
   if (a.activeSkill) lines.push(`${SKILL_PREFIX}${a.activeSkill.name} (seit ${minsSince(a.activeSkill.since, now)} min)`);
+  const shells = a.shells ?? [];
+  if (shells.length) {
+    lines.push(shells.length === 1 ? '1 Shell läuft' : `${shells.length} Shells laufen`);
+    for (const s of shells.slice(0, MAX_SHELL_LINES)) lines.push(`${SHELL_PREFIX}${s.label} (${minsSince(s.startedAt, now)} min)`);
+    if (shells.length > MAX_SHELL_LINES) lines.push(`${SHELL_PREFIX}+${shells.length - MAX_SHELL_LINES} weitere`);
+  }
   lines.push(STATUS_LABEL[a.status], `seit ${minsSince(a.startedAt, now)} min`);
   return { title: a.name || role, lines };
 }
@@ -64,7 +72,8 @@ export class TooltipView {
         d.className = i === 0 ? 'tt-role'
           : line === STATUS_LABEL[a.status] ? `tt-status tt-${a.status}`
           : line.startsWith(SKILL_PREFIX) ? 'tt-skill'
-          : line.startsWith(TASK_BULLET) ? 'tt-line tt-task' : 'tt-line';
+          : line.startsWith(TASK_BULLET) ? 'tt-line tt-task'
+          : line.startsWith(SHELL_PREFIX) ? 'tt-line tt-shell' : 'tt-line';
         this.el.append(d);
       });
     }

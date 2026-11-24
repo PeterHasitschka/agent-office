@@ -4,6 +4,7 @@ import type { BuildingLayout, FloorLayout, RoomLayout } from './layout.js';
 import { ELEVATOR_W, LOBBY_H, ROOF_H, SLAB_H, truncateLabel } from './layout.js';
 import type { Actor } from './scene.js';
 import { DESK_TOP, PROP_W, SPRITE_H, SPRITE_W, drawDeskProp, drawEmptyChair } from './sprites.js';
+import { SHELL_FAIL_FLASH_MS, drawShellMonitors, monitorPlan } from './sprites-shells.js';
 import { drawText, textWidth } from './font.js';
 import type { Sky } from './render-sky.js';
 
@@ -197,16 +198,21 @@ export function drawRoomSign(ctx: Ctx, r: RoomLayout): void {
   ctx.restore();
 }
 
-/** Desk surfaces for every slot, plus each seated actor's role prop. */
-export function drawDesks(ctx: Ctx, r: RoomLayout, actors: Map<string, Actor>, frame: number): void {
+/** Desk surfaces for every slot, plus each seated actor's role prop and its owner's background-shell monitors. */
+export function drawDesks(ctx: Ctx, r: RoomLayout, actors: Map<string, Actor>, frame: number, now: number): void {
   for (const d of r.desks) {
     const dx = d.x + SPRITE_W, dy = d.y + DESK_TOP;
     const feet = d.y + SPRITE_H;
-    rect(ctx, dx + 1, dy + 3, 1, feet - dy - 3, '#6b4224'); rect(ctx, dx + PROP_W - 2, dy + 3, 1, feet - dy - 3, '#6b4224');
-    rect(ctx, dx + 2, dy + 5, PROP_W - 4, 4, '#8a5a34');      // drawer panel
-    rect(ctx, dx + PROP_W / 2 - 1, dy + 6, 2, 1, '#d8b070');
-    rect(ctx, dx, dy, PROP_W, 2, '#9a6438'); rect(ctx, dx, dy + 2, PROP_W, 1, '#6b4224');
     const a = actors.get(d.agentId);
+    const failedAt = a?.agent.shellFailedAt;
+    const plan = a ? monitorPlan(a.agent.shells?.length ?? 0, failedAt !== undefined && now - failedAt < SHELL_FAIL_FLASH_MS) : [];
+    rect(ctx, dx + 1, dy + 3, 1, feet - dy - 3, '#6b4224'); rect(ctx, dx + PROP_W - 2, dy + 3, 1, feet - dy - 3, '#6b4224');
+    if (plan.length) drawShellMonitors(ctx, dx, d.y, plan, frame); // monitors take the drawer's place
+    else {
+      rect(ctx, dx + 2, dy + 5, PROP_W - 4, 4, '#8a5a34');      // drawer panel
+      rect(ctx, dx + PROP_W / 2 - 1, dy + 6, 2, 1, '#d8b070');
+    }
+    rect(ctx, dx, dy, PROP_W, 2, '#9a6438'); rect(ctx, dx, dy + 2, PROP_W, 1, '#6b4224');
     if (a && (a.phase === 'seated' || a.phase === 'changing' || a.phase === 'waking')) { // props stay put while the owner shuffles over
       const away = a.atMachine || Math.round(a.x) !== d.x || Math.round(a.y) !== d.y;
       if (away) drawEmptyChair(ctx, d.x, d.y); // owner at a skill machine (or on the way): chair pushed back

@@ -8,6 +8,7 @@ import { GatedLaya, layaUrl, startLayaProbe, startPolling } from './app.js';
 import { DEFAULT_CACHE_PATH, RoleClassifier } from './classify/index.js';
 import { loadRoleConfig } from './classify/rules.js';
 import { DEFAULT_SKILL_CACHE_PATH, loadSkillConfig, SkillClassifier } from './classify/skills.js';
+import { ShellTracker } from './discovery/shells.js';
 import { loadIgnoreCommands } from './discovery/skills.js';
 import { demoSnapshot } from './demo.js';
 import { EventStore } from './events.js';
@@ -131,8 +132,9 @@ async function serve(args: CliArgs): Promise<void> {
     const floorOrder = new Map<string, number>();
     const recent: RecentRooms = new Map();
     const lastSkills: LastSkills = new Map();
+    const shells = new ShellTracker();
     rebuild = () =>
-      buildSnapshot({ claudeHome: args.claudeHome, roles: classifier, skills, ignoreCommands, floorOrder, recent, lastSkills, events });
+      buildSnapshot({ claudeHome: args.claudeHome, roles: classifier, skills, ignoreCommands, floorOrder, recent, lastSkills, events, shells });
   }
 
   let poller: ReturnType<typeof startPolling> | null = null;

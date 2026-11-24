@@ -1,11 +1,12 @@
 import { basename, join } from 'node:path';
-import type { ActiveSkill, Agent, Floor, RoleId, Room, SkillCategory, Snapshot, Status } from '../shared/types.js';
+import type { ActiveSkill, Agent, Shell, Floor, RoleId, Room, SkillCategory, Snapshot, Status } from '../shared/types.js';
 import type { EventStore } from './events.js';
 import { defaultProbe, listLiveSessions, type LiveSession, type ProcessProbe } from './discovery/processes.js';
 import { resolveRepo } from './discovery/repo.js';
 import { lastSkillUse, parseSkillListing, type SkillUse } from './discovery/skills.js';
 import { listSubagentInstances } from './discovery/subagents.js';
 import { buildPersonas } from './personas.js';
+import type { ShellTracker } from './discovery/shells.js';
 import { findTranscript, leadStatusDetail, transcriptForSession, sessionTitle, SPAWN_TOOLS, WAITING_TOOLS } from './discovery/transcript.js';
 import { cwdToSlug } from './util/slug.js';
 import { tailJsonl } from './util/tail.js';
@@ -34,6 +35,8 @@ export interface SnapshotDeps {
   recent?: RecentRooms;
   events?: EventStore;
   lastSkills?: LastSkills;
+  /** incremental background-shell reader; without it no shells are reported */
+  shells?: ShellTracker;
 }
 
 const KEEP_ENDED_MS = 30 * 60_000;
@@ -59,6 +62,19 @@ function activeSkillOf(
 ): ActiveSkill | undefined {
   if (!use || !statuses.includes(status) || now - use.at >= SKILL_ACTIVE_MS) return undefined;
   return { name: use.name, category: categoryOf(use), since: use.at };
+}
+
+/** Running shells of one transcript; shells started before `notBefore` (a resumed session's old process) are dropped. */
+async function shellsOf(
+  tracker: ShellTracker | undefined, path: string, notBefore = 0,
+): Promise<{ shells?: Shell[]; shellFailedAt?: number }> {
+  if (!tracker) return {};
+  const r = await tracker.read(path).catch(() => ({ open: [], failedAt: undefined }));
+  const shells = r.open.filter((x) => x.startedAt >= notBefore).map(({ label, startedAt }) => ({ label, startedAt }));
+  return {
+    ...(shells.length ? { shells } : {}),
+    ...(r.failedAt !== undefined && r.failedAt >= notBefore ? { shellFailedAt: r.failedAt } : {}),
+  };
 }
 
 interface Built {
@@ -163,10 +179,12 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
           if (eventId && deps.events) status = deps.events.overrideFor(eventId, transcriptMtime) ?? status;
 
           const leadActive = activeSkillOf(leadSkill, status, ['busy', 'waiting'], now, categoryOf);
+          const leadShells = tr ? await shellsOf(deps.shells, tr.path, s.procStartMs ? s.procStartMs - 5000 : 0) : {};
           const lead: Agent = {
             id: leadId, kind: 'lead', name, description: `Session in ${cwd}`, role: 'lead',
             status, startedAt, lastActivityAt,
             ...(leadActive ? { activeSkill: leadActive } : {}),
+            ...leadShells,
           };
           const agents: Agent[] = [lead];
           for (const p of personas) {
@@ -183,6 +201,10 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
                 active = activeSkillOf(use, p.status, ['busy'], now, () => category);
               }
             }
+            // A finished sub-agent's shells are not shown (its run is over); each instance has its own transcript.
+            const subShells = p.status !== 'done' && sessionDir
+              ? await shellsOf(deps.shells, join(sessionDir, 'subagents', `agent-${p.current.id}.jsonl`))
+              : {};
             let role = deps.roles.roleFor(p.agentType, description);
             if (role === 'intern') {
               const hint = active?.category ?? lastSkills.get(p.id);
@@ -196,6 +218,7 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
               parentId: leadId,
               ...(active ? { activeSkill: active } : {}),
               runs: p.runs, recentTasks: p.recentTasks,
+              ...subShells,
             });
           }
           const room: Room = { id: cwd, label: roomLabel, cwd, ...(repo.branch ? { branch: repo.branch } : {}), agents };
@@ -206,6 +229,7 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
       }),
     )
   ).filter((b): b is Built => b !== null);
+  deps.shells?.sweep();
 
   // Several sessions in one cwd share one room; each lead keeps its own sub-agents.
   const merged = new Map<string, Built & { groups: Agent[][] }>();

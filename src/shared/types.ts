@@ -15,6 +15,12 @@ export interface ActiveSkill {
   since: number;
 }
 
+/** A background shell (Bash run in the background) started by an agent and still running. */
+export interface Shell {
+  label: string;
+  startedAt: number;
+}
+
 export interface Agent {
   id: string;
   kind: 'lead' | 'sub';
@@ -29,6 +35,10 @@ export interface Agent {
   activeSkill?: ActiveSkill;
   runs?: number;
   recentTasks?: string[];
+  /** running background shells (shown as mini monitors under the desk) */
+  shells?: Shell[];
+  /** when one of this agent's background shells last ended with status "failed" */
+  shellFailedAt?: number;
 }
 
 export interface Room {
