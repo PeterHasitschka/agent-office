@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Snapshot, SkillCategory } from '../../src/shared/types.js';
-import { DisplayState } from '../../src/web/display.js';
+import { DisplayState, MACHINE_HOLD_MS } from '../../src/web/display.js';
 
 const ag = (id: string, skill?: string, category: SkillCategory = 'review'): Agent => ({
   id, kind: 'sub', name: id, description: '', role: 'builder', status: 'busy', startedAt: 0, lastActivityAt: 0,
@@ -48,16 +48,34 @@ describe('DisplayState', () => {
     expect(input.floors[0].rooms[0].agents[0].activeSkill).toBeUndefined();
   });
 
-  it('holds a machine 10 s after the last user left, then removes it', () => {
+  it('holds an unused machine 15 min after the last user left, then removes it', () => {
+    expect(MACHINE_HOLD_MS).toBe(15 * 60_000);
     const d = new DisplayState();
     d.update(snap(ag('a', 'my-review')), 0);
     d.update(snap(ag('a')), 1000);
-    d.update(snap(ag('a')), 2000); // skill dropped from display here
+    d.update(snap(ag('a')), 10_000); // skill dropped from display here (last used at 1000)
+    expect(skillOf(d.update(snap(ag('a')), 10_000), 'a')).toBeUndefined();
     expect(d.machines().get('f')?.map(m => m.name)).toEqual(['my-review']);
-    d.update(snap(ag('a')), 11000);
+    d.update(snap(ag('a')), 1000 + MACHINE_HOLD_MS - 1000); // 5 min, 10 min, ... still standing
     expect(d.machines().get('f')?.map(m => m.name)).toEqual(['my-review']);
-    d.update(snap(ag('a')), 12001);
+    d.update(snap(ag('a')), 1000 + MACHINE_HOLD_MS + 1);
     expect(d.machines().get('f') ?? []).toEqual([]);
+  });
+
+  it('a held machine is reused in place when its skill comes back', () => {
+    const d = new DisplayState();
+    const names = () => (d.machines().get('f') ?? []).map(m => m.name);
+    d.update(snap(ag('a', 'x'), ag('b', 'y')), 0);
+    d.update(snap(ag('a'), ag('b', 'y')), 1000);
+    d.update(snap(ag('a'), ag('b', 'y')), 11_000); // x unused but held
+    d.update(snap(ag('a'), ag('b', 'y')), 10 * 60_000);
+    expect(names()).toEqual(['x', 'y']);
+    d.update(snap(ag('a', 'x'), ag('b', 'y')), 10 * 60_000 + 500);
+    expect(names()).toEqual(['x', 'y']); // same position, no rebuild
+    d.update(snap(ag('a'), ag('b', 'y')), 10 * 60_000 + 1000);
+    d.update(snap(ag('a'), ag('b', 'y')), 10 * 60_000 + 11_000);
+    d.update(snap(ag('a'), ag('b', 'y')), 10 * 60_000 + 500 + MACHINE_HOLD_MS - 1); // hold restarts at last use
+    expect(names()).toEqual(['x', 'y']);
   });
 
   it('lists machines in first-seen order', () => {
@@ -78,9 +96,9 @@ describe('DisplayState', () => {
     expect(names()).toEqual(['x', 'y', 'z']);
     d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 10_500); // y still displayed (hysteresis)
     expect(names()).toEqual(['x', 'y', 'z']);
-    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 11_500); // x expired, y still in use
+    d.update(snap(ag('a'), ag('b'), ag('c', 'z')), 1000 + MACHINE_HOLD_MS + 500); // x expired, y held, z in use
     expect(names()).toEqual(['y', 'z']);
-    d.update(snap(ag('a', 'x'), ag('b'), ag('c', 'z')), 11_800);
+    d.update(snap(ag('a', 'x'), ag('b'), ag('c', 'z')), 1000 + MACHINE_HOLD_MS + 800);
     expect(names()).toEqual(['y', 'z', 'x']);
   });
 

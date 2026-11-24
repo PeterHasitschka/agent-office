@@ -1,11 +1,12 @@
 // Web-side display state: smooths the server snapshot so figures/machines do not flicker.
 //  - an agent's activeSkill stays displayed until it is absent in >= 2 consecutive updates AND
 //    >= SKILL_HOLD_MS have passed since it was last seen (snapshots can arrive every ~300 ms)
-//  - a machine stays on its floor until no displayed agent uses it + HOLD_MS
+//  - a machine stays on its floor until no displayed agent has used it for MACHINE_HOLD_MS (15 min);
+//    meanwhile it stands switched off, and a returning skill reuses it in place (no rebuild puff)
 // Pure apart from its own state; the caller supplies `now`.
 import type { Snapshot, SkillCategory, ActiveSkill } from '../shared/types.js';
 
-export const MACHINE_HOLD_MS = 10_000;
+export const MACHINE_HOLD_MS = 15 * 60_000;
 export const SKILL_HOLD_MS = 10_000;
 const MISSING_LIMIT = 2;
 
