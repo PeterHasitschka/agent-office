@@ -39,7 +39,7 @@ describe('listLiveSessions', () => {
     const all: ProcessProbe = { isAlive: () => true, cwdOf: async () => '/probe/cwd' };
     const r = await listLiveSessions(home, all);
     expect(r).toEqual([
-      { pid: 7, cwd: '/meta/cwd', procStartMs: 0, sessionId: 'abc-123', name: 'n' },
+      { pid: 7, cwd: '/meta/cwd', procStartMs: 0, sessionId: 'abc-123', name: 'n', nameIsCustom: true },
       { pid: 8, cwd: '/probe/cwd', procStartMs: 0 },
     ]);
   });

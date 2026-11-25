@@ -35,6 +35,7 @@ export const ELEVATOR_W = 20;
 export const LOBBY_H = 40;
 export const ROOF_H = 8;
 export const FLOOR_LABEL_MAX = 18;
+export const ROOM_LABEL_MAX = 60;
 export const MACHINE_W = 28;
 export const MACHINE_H = 22;
 /** Left strip of the SKILLS room reserved for its "SKILLS" door sign on the floor strip. */
@@ -137,7 +138,7 @@ export function layoutBuilding(s: Snapshot, opts: {
       });
       return {
         roomId: r.id, rect, desks,
-        label: truncateLabel(r.label, Math.floor((w - 4) / 4)),
+        label: truncateLabel(r.label, ROOM_LABEL_MAX), // the sign shortens further to its pixel width
         lit: !r.ended && agents.some(a => a.kind === 'lead'),
       };
     });

@@ -7,7 +7,7 @@ import { lastSkillUse, parseSkillListing, type SkillUse } from './discovery/skil
 import { listSubagentInstances } from './discovery/subagents.js';
 import { buildPersonas } from './personas.js';
 import type { ShellTracker } from './discovery/shells.js';
-import { findTranscript, leadStatusDetail, transcriptForSession, sessionTitle, SPAWN_TOOLS, WAITING_TOOLS } from './discovery/transcript.js';
+import { customTitle, findTranscript, leadStatusDetail, transcriptForSession, sessionTitle, SPAWN_TOOLS, WAITING_TOOLS } from './discovery/transcript.js';
 import { cwdToSlug } from './util/slug.js';
 import { tailJsonl } from './util/tail.js';
 
@@ -80,6 +80,8 @@ async function shellsOf(
 interface Built {
   room: Room;
   floor: { id: string; label: string };
+  /** room label is the default (repo · branch / worktree dir), not a session name → numbered on collisions */
+  defaultLabel?: boolean;
 }
 
 function order(map: Map<string, number>, key: string): number {
@@ -144,6 +146,7 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
 
           let status: Status = 'idle';
           let name = s.name || roomLabel;
+          let custom = s.nameIsCustom ? s.name : undefined;
           let startedAt = s.procStartMs || now;
           let lastActivityAt = startedAt;
           let transcriptMtime = 0;
@@ -157,7 +160,8 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
             const d = leadStatusDetail(entries, mtimeMs, now);
             status = d.status;
             openTools = d.openTools;
-            name = s.name || sessionTitle(entries) || roomLabel;
+            custom = custom || customTitle(entries) || undefined;
+            name = s.name || custom || sessionTitle(entries) || roomLabel;
             lastActivityAt = mtimeMs || lastActivityAt;
             transcriptMtime = mtimeMs;
           }
@@ -221,8 +225,11 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
               ...subShells,
             });
           }
-          const room: Room = { id: cwd, label: roomLabel, cwd, ...(repo.branch ? { branch: repo.branch } : {}), agents };
-          return { room, floor: { id: repo.repoRoot, label: repo.repoName } };
+          // One room per Claude Code process (stable across /clear, which starts a new session id).
+          const room: Room = {
+            id: `${cwd}#${s.pid}`, label: custom ?? roomLabel, cwd, ...(repo.branch ? { branch: repo.branch } : {}), agents,
+          };
+          return { room, floor: { id: repo.repoRoot, label: repo.repoName }, defaultLabel: !custom };
         } catch {
           return null;
         }
@@ -231,18 +238,21 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
   ).filter((b): b is Built => b !== null);
   deps.shells?.sweep();
 
-  // Several sessions in one cwd share one room; each lead keeps its own sub-agents.
-  const merged = new Map<string, Built & { groups: Agent[][] }>();
+  // Rooms of one cwd stay side by side (first-seen cwd order, then first-seen room order);
+  // unnamed sessions sharing a cwd get "#2", "#3", ... so their signs differ.
   for (const b of built) {
-    const m = merged.get(b.room.id);
-    if (m) m.groups.push(b.room.agents);
-    else merged.set(b.room.id, { ...b, groups: [b.room.agents] });
+    order(deps.floorOrder, `cwd:${b.room.cwd}`);
+    order(deps.floorOrder, `room:${b.room.id}`);
   }
-  const live: Built[] = [];
-  for (const m of merged.values()) {
-    for (const g of m.groups) order(deps.floorOrder, `lead:${g[0].id}`);
-    m.groups.sort((a, b) => order(deps.floorOrder, `lead:${a[0].id}`) - order(deps.floorOrder, `lead:${b[0].id}`));
-    live.push({ floor: m.floor, room: { ...m.room, agents: m.groups.flat() } });
+  const live = [...built].sort((a, b) =>
+    order(deps.floorOrder, `cwd:${a.room.cwd}`) - order(deps.floorOrder, `cwd:${b.room.cwd}`) ||
+    order(deps.floorOrder, `room:${a.room.id}`) - order(deps.floorOrder, `room:${b.room.id}`));
+  const seenDefault = new Map<string, number>();
+  for (const b of live) {
+    if (!b.defaultLabel) continue;
+    const n = (seenDefault.get(b.room.cwd) ?? 0) + 1;
+    seenDefault.set(b.room.cwd, n);
+    if (n > 1) b.room = { ...b.room, label: `${b.room.label} #${n}` };
   }
 
   const liveIds = new Set(live.map((b) => b.room.id));
@@ -270,7 +280,11 @@ export async function buildSnapshot(deps: SnapshotDeps): Promise<Snapshot> {
     f.rooms.push(b.room);
   }
   const out = [...floors.values()];
-  for (const f of out) f.rooms.sort((a, b) => order(deps.floorOrder, `room:${a.id}`) - order(deps.floorOrder, `room:${b.id}`));
+  for (const f of out) {
+    f.rooms.sort((a, b) =>
+      order(deps.floorOrder, `cwd:${a.cwd}`) - order(deps.floorOrder, `cwd:${b.cwd}`) ||
+      order(deps.floorOrder, `room:${a.id}`) - order(deps.floorOrder, `room:${b.id}`));
+  }
   out.sort((a, b) => order(deps.floorOrder, a.id) - order(deps.floorOrder, b.id));
   return { generatedAt: now, floors: out };
 }

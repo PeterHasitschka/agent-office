@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Agent, Room, Snapshot } from '../../src/shared/types.js';
 import {
-  layoutBuilding, truncateLabel, machinePlateRect, type Rect, BASE_FLOOR_H, SKILLS_SIGN_W, ROOM_PAD, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W, MACHINE_W, MACHINE_H,
+  layoutBuilding, truncateLabel, ROOM_LABEL_MAX, machinePlateRect, type Rect, BASE_FLOOR_H, SKILLS_SIGN_W, ROOM_PAD, ROW_H, LOBBY_H, ROOF_H, ELEVATOR_W, MACHINE_W, MACHINE_H,
 } from '../../src/web/layout.js';
 import { SPRITE_W, SPRITE_H, HEADROOM, PROP_W } from '../../src/web/sprites.js';
 
@@ -40,10 +40,10 @@ describe('layoutBuilding', () => {
   });
 
   it('truncates long room labels with an ellipsis', () => {
-    const l = layoutBuilding(snap({ id: 'f', rooms: [room('a', 1, 'x'.repeat(60))] }));
+    const l = layoutBuilding(snap({ id: 'f', rooms: [room('a', 1, 'x'.repeat(100))] }));
     const lab = l.floors[0].rooms[0].label;
     expect(lab.endsWith('…')).toBe(true);
-    expect(lab.length).toBe(Math.floor((64 - 4) / 4));
+    expect(lab.length).toBe(ROOM_LABEL_MAX);
   });
 
   it('stacks floors bottom-up above the lobby', () => {

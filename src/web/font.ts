@@ -102,3 +102,27 @@ export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number,
   }
   return Math.max(0, cx - Math.round(x) - 1);
 }
+
+/** Like drawText, but each font pixel is `unit` logical pixels (e.g. 0.5 = half size); widths scale the same way. */
+export function drawTextScaled(
+  ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, unit: number,
+): number {
+  ctx.fillStyle = color;
+  let cx = 0;
+  for (const ch of text) {
+    const g = glyphFor(ch);
+    for (let r = 0; r < g.length; r++) {
+      const row = g[r];
+      for (let c = 0; c < row.length; c++) if (row[c] === '#') ctx.fillRect(x + (cx + c) * unit, y + r * unit, unit, unit);
+    }
+    cx += g[0].length + 1;
+  }
+  return Math.max(0, cx - 1) * unit;
+}
+
+/** Size of one small-font pixel in logical px for a canvas drawn at `scale` device px per logical px:
+ *  about 0.7 of the normal font, but always a whole number of device pixels so the text stays crisp. */
+export function smallTextUnit(scale: number): number {
+  const s = Math.max(1, Math.round(scale));
+  return Math.max(1, Math.round(s * 0.7)) / s;
+}

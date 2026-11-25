@@ -10,7 +10,7 @@ import { leadStatusDetail } from '../src/server/discovery/transcript';
 import { cwdToSlug } from '../src/server/util/slug';
 import type { ProcessProbe } from '../src/server/discovery/processes';
 import { loadIgnoreCommands } from '../src/server/discovery/skills';
-import type { SkillCategory } from '../src/shared/types';
+import type { Agent, SkillCategory } from '../src/shared/types';
 import { ShellTracker } from '../src/server/discovery/shells';
 
 const roles: RoleSource = { roleFor: () => 'builder' };
@@ -145,6 +145,7 @@ describe('buildSnapshot', () => {
       return { h, probe };
     }
 
+    const allAgents = (s: { floors: { rooms: { agents: Agent[] }[] }[] }) => s.floors[0].rooms.flatMap((r) => r.agents);
     const check = (agents: { id: string; kind: string; name: string; parentId?: string }[]) => {
       const leads = agents.filter((a) => a.kind === 'lead');
       expect(leads).toHaveLength(2);
@@ -158,12 +159,13 @@ describe('buildSnapshot', () => {
       return leads;
     };
 
-    it('meta sessionId: merges into one room, distinct leads, each sees only its own subs', async () => {
+    it('meta sessionId: one room per session ("#2" for the second), each with its own lead and subs', async () => {
       const { h, probe } = twoSessions([1, 2]);
       const s = await buildSnapshot(opts(h, probe));
       expect(s.floors).toHaveLength(1);
-      expect(s.floors[0].rooms).toHaveLength(1);
-      const agents = s.floors[0].rooms[0].agents;
+      expect(s.floors[0].rooms.map((r) => r.label)).toEqual(['plain', 'plain #2']);
+      for (const r of s.floors[0].rooms) expect(r.agents.filter((a) => a.kind === 'lead')).toHaveLength(1);
+      const agents = allAgents(s);
       const leads = check(agents);
       expect(leads.map((l) => l.id).sort()).toEqual(['sess-a', 'sess-b']);
       expect(agents.find((a) => a.parentId === 'sess-a')!.name).toBe('t1');
@@ -173,7 +175,7 @@ describe('buildSnapshot', () => {
     it('fallback without sessionId never assigns one transcript to two sessions', async () => {
       const { h, probe } = twoSessions([1, 2], false);
       const s = await buildSnapshot(opts(h, probe));
-      const leads = check(s.floors[0].rooms[0].agents);
+      const leads = check(allAgents(s));
       expect(leads.map((l) => l.id).sort()).toEqual(['sess-a', 'sess-b']);
     });
 
@@ -183,24 +185,37 @@ describe('buildSnapshot', () => {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, 'sess-a.jsonl'), '{}\n');
       const s = await buildSnapshot(opts(h, probe));
-      const ids = s.floors[0].rooms[0].agents.map((a) => a.id).sort();
+      const ids = allAgents(s).map((a) => a.id).sort();
       expect(ids).toEqual(['pid:2', 'sess-a']);
     });
 
-    it('one ending leaves the room live; both ending gives one ended room', async () => {
+    it('an ending session leaves its own room dark; the other room stays live', async () => {
       const recent: RecentRooms = new Map();
       const order = new Map<string, number>();
       const both = twoSessions([1, 2]);
       await buildSnapshot(opts(both.h, both.probe, { recent, floorOrder: order, now: 1000 }));
-      const one = home({ 1: plain });
+      const one = home({ 1: plain }, { 1: { sessionId: 'sess-a' } });
       const s2 = await buildSnapshot(opts(one.h, one.probe, { recent, floorOrder: order, now: 2000 }));
-      expect(s2.floors[0].rooms).toHaveLength(1);
-      expect(s2.floors[0].rooms[0].ended).toBeUndefined();
-      expect(s2.floors[0].rooms[0].agents.filter((a) => a.kind === 'lead')).toHaveLength(1);
+      expect(s2.floors[0].rooms.map((r) => [r.label, !!r.ended])).toEqual([['plain', false], ['plain #2', true]]);
       const none = home({});
       const s3 = await buildSnapshot(opts(none.h, none.probe, { recent, floorOrder: order, now: 3000 }));
-      expect(s3.floors[0].rooms).toHaveLength(1);
-      expect(s3.floors[0].rooms[0]).toMatchObject({ ended: true, agents: [] });
+      expect(s3.floors[0].rooms.map((r) => !!r.ended)).toEqual([true, true]);
+    });
+
+    it('a /rename name labels the room (meta name, or custom-title from the transcript)', async () => {
+      const { h, probe } = home({ 1: plain, 2: plain, 3: plain }, {
+        1: { sessionId: 'sess-a', name: 'api-work', nameSource: 'user' },
+        2: { sessionId: 'sess-b' },
+        3: { sessionId: 'sess-c', name: 'derived', nameSource: 'auto' },
+      });
+      const dir = join(h, 'projects', cwdToSlug(plain));
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'sess-a.jsonl'), '{}\n');
+      writeFileSync(join(dir, 'sess-b.jsonl'), JSON.stringify({ type: 'custom-title', customTitle: 'ui-polish' }) + '\n');
+      writeFileSync(join(dir, 'sess-c.jsonl'), '{}\n');
+      const s = await buildSnapshot(opts(h, probe));
+      expect(s.floors[0].rooms.map((r) => r.label)).toEqual(['api-work', 'ui-polish', 'plain']);
+      expect(allAgents(s).find((a) => a.id === 'sess-b')!.name).toBe('ui-polish');
     });
 
     it('empty ai-title falls back to room label', async () => {

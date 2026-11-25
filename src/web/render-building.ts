@@ -5,7 +5,7 @@ import { ELEVATOR_W, LOBBY_H, ROOF_H, SLAB_H, truncateLabel } from './layout.js'
 import type { Actor } from './scene.js';
 import { DESK_TOP, PROP_W, SPRITE_H, SPRITE_W, drawDeskProp, drawEmptyChair } from './sprites.js';
 import { SHELL_FAIL_FLASH_MS, drawShellMonitors, monitorPlan } from './sprites-shells.js';
-import { drawText, textWidth } from './font.js';
+import { drawText, drawTextScaled, smallTextUnit, textWidth } from './font.js';
 import type { Sky } from './render-sky.js';
 
 export interface Margins { left: number; right: number; top: number; bottom: number }
@@ -184,17 +184,22 @@ export function drawRoomShade(ctx: Ctx, r: RoomLayout, env: Env): void {
 /** Door sign: brass plate on the floor fascia below the room (stays visible when the room is dark). */
 export function drawRoomSign(ctx: Ctx, r: RoomLayout): void {
   if (!r.label) return;
+  // small font (≈0.7×) so longer session names fit; snapped to whole device pixels
+  const dev = Math.max(1, Math.round(ctx.getTransform().a));
+  const u = smallTextUnit(dev);
+  const snap = (v: number) => Math.round(v * dev) / dev;
   const maxW = r.rect.w - 10;
-  let text = r.label.toUpperCase();
-  for (let n = text.length; n > 1 && textWidth(text) > maxW; n--) text = truncateLabel(r.label.toUpperCase(), n);
-  const tw = Math.min(textWidth(text), maxW);
+  const upper = r.label.toUpperCase();
+  let text = upper;
+  for (let n = text.length; n > 1 && textWidth(text) * u > maxW; n--) text = truncateLabel(upper, n);
+  const tw = Math.ceil(Math.min(textWidth(text) * u, maxW));
   const px = r.rect.x + 3, py = r.rect.y + r.rect.h - 4; // floor strip + slab: 8 rows
   rect(ctx, px, py, tw + 6, 8, '#5a3f22');
   rect(ctx, px + 1, py, tw + 4, 7, r.lit ? '#f3d98a' : '#b9a46a');
   rect(ctx, px + 1, py, tw + 4, 1, r.lit ? '#fff0b8' : '#cdb880');
   ctx.save();
   ctx.beginPath(); ctx.rect(px + 2, py, tw + 2, 7); ctx.clip();
-  drawText(ctx, text, px + 3, py + 1, '#3a2614');
+  drawTextScaled(ctx, text, px + 3, snap(py + 1 + (6 - 5 * u) / 2), '#3a2614', u);
   ctx.restore();
 }
 

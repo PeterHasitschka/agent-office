@@ -1,6 +1,6 @@
 # agent-office
 
-A local web app that turns your running [Claude Code](https://claude.com/claude-code) sessions into a pixel-art office building. Each repo is a floor, each worktree or session is a room, and every sub-agent is a small chibi figure whose look depends on its role (builder, critic, detective, ...). When Claude waits for you, the lead raises a hand. Finished sub-agents fall asleep and go home after 30 minutes.
+A local web app that turns your running [Claude Code](https://claude.com/claude-code) sessions into a pixel-art office building. Each repo is a floor, each Claude Code session is a room, and every sub-agent is a small chibi figure whose look depends on its role (builder, critic, detective, ...). When Claude waits for you, the lead raises a hand. Finished sub-agents fall asleep and go home after 30 minutes.
 
 _Screenshot coming soon._
 
@@ -23,7 +23,9 @@ agent-office reads `~/.claude` read-only:
 - session transcripts (what the agent is doing right now),
 - sub-agent meta files (name and description of each sub-agent, used for role detection).
 
-The lead figure of a room is named after the Claude Code session name when one is available (the name you set, or the one Claude Code derives), otherwise after the transcript's title, otherwise after the room.
+Every running Claude Code session gets its own room, even when several sessions work in the same checkout or worktree; rooms of the same directory sit side by side. The room sign shows the name you gave the session with `/rename` (from the session file, or the transcript's `custom-title` entry). Unnamed sessions are labelled with repo and branch (main checkout) or the worktree directory, and a second unnamed session in the same directory gets `#2`. A room belongs to the Claude Code process, so `/clear` keeps it. When a session ends, its room stays dark for 30 minutes.
+
+The lead figure is named after the session name when one is available, otherwise after the transcript's title, otherwise after the room.
 
 From these it derives a status per figure (working, waiting for you, finished, sleeping) using heuristics, for example how recently the transcript was written and whether the last message is a question or a pending tool call. The snapshot is pushed to the browser over a local stream.
 

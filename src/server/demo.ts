@@ -55,6 +55,13 @@ const ROOMS: RoomDef[] = [
     ],
   },
   {
+    // a second session in the same checkout, renamed with /rename: its own room next to the first
+    floor: 'pixel-bakery', name: 'croissant-pricing-hotfix', branch: 'main', lead: 'Croissant-Preise korrigieren', leadShift: 2,
+    subs: [
+      { type: 'Explore', desc: 'Trace where the rounding happens', role: 'detective', status: 'busy', rotate: 2 },
+    ],
+  },
+  {
     floor: 'pixel-bakery', name: 'pixel-bakery · feature/bagels', branch: 'feature/bagels', lead: 'Bagel-Seite gestalten', leadShift: 1,
     subs: [
       { type: 'docs-writer', desc: 'Document the bagel API and update the readme', role: 'archivist', status: 'busy', rotate: 3 },

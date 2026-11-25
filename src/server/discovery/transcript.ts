@@ -145,3 +145,12 @@ export function sessionTitle(entries: unknown[]): string | null {
   }
   return null;
 }
+
+/** Last `custom-title` value (set via /rename) in the entries, or null. */
+export function customTitle(entries: unknown[]): string | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (isObj(e) && e.type === 'custom-title' && typeof e.customTitle === 'string' && e.customTitle.trim()) return e.customTitle.trim();
+  }
+  return null;
+}

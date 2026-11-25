@@ -10,6 +10,8 @@ export interface LiveSession {
   sessionId?: string;
   /** Session name from the meta file (user-set or derived), when present. */
   name?: string;
+  /** True when the name was set by the user (/rename): meta nameSource "user", or no nameSource given. */
+  nameIsCustom?: boolean;
 }
 
 export interface ProcessProbe {
@@ -81,7 +83,10 @@ export async function listLiveSessions(
     const procStartMs = Number.isNaN(t) ? 0 : t;
     const s: LiveSession = { pid, cwd, procStartMs };
     if (typeof meta.sessionId === 'string' && SESSION_ID_RE.test(meta.sessionId)) s.sessionId = meta.sessionId;
-    if (typeof meta.name === 'string' && meta.name.trim()) s.name = meta.name.trim();
+    if (typeof meta.name === 'string' && meta.name.trim()) {
+      s.name = meta.name.trim();
+      s.nameIsCustom = meta.nameSource === undefined || meta.nameSource === 'user';
+    }
     out.push(s);
   }
   return out.sort((a, b) => a.pid - b.pid);
