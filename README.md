@@ -4,7 +4,9 @@
 
 ![agent-office demo: a three-floor pixel office with working, waiting and sleeping agents and a skill corner](docs/screenshot.png)
 
-You have three Claude Code sessions open, two of them spawned sub-agents, one is quietly waiting for an answer, and you have lost track. agent-office turns all of that into an office building: each repo is a floor, each session is a room, and every sub-agent is a small figure at a desk. Reviewers wear grey suits, testers wear lab coats, and whoever needs you raises a hand.
+Congratulations, you manage a team now.
+
+They work fast, never take lunch, and occasionally sit there with their hand up for twenty minutes because you forgot to answer. agent-office gives them an office: each repo is a floor, each Claude Code session a room, and every sub-agent a little figure at a desk, dressed for the job. Reviewers wear grey suits, testers wear lab coats, and whoever needs you raises a hand.
 
 It runs locally, reads `~/.claude` without touching it, and needs no setup to try.
 
