@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_LAYA_URL, GatedLaya, layaUrl, startPolling } from '../src/server/app.js';
-import { parseArgs } from '../src/server/cli.js';
+import { browserCommand, parseArgs } from '../src/server/cli.js';
 import type { Snapshot } from '../src/shared/types.js';
 
 describe('parseArgs', () => {
@@ -16,6 +16,15 @@ describe('parseArgs', () => {
   it('rejects bad input', () => {
     expect(() => parseArgs(['--port', 'abc'])).toThrow();
     expect(() => parseArgs(['--wat'])).toThrow();
+  });
+});
+
+describe('browserCommand', () => {
+  const url = 'http://127.0.0.1:4242';
+  it('macOS uses open', () => expect(browserCommand(url, 'darwin')).toEqual(['open', [url]]));
+  it('Linux uses xdg-open', () => expect(browserCommand(url, 'linux')).toEqual(['xdg-open', [url]]));
+  it('Windows uses cmd start with an empty title', () => {
+    expect(browserCommand(url, 'win32')).toEqual(['cmd', ['/c', 'start', '""', url]]);
   });
 });
 

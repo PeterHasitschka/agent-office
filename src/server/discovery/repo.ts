@@ -22,7 +22,8 @@ export async function resolveRepo(cwd: string): Promise<RepoInfo> {
     const out = await git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir', '--show-toplevel']);
     const [common, top] = out.split('\n');
     if (!common || !top) throw new Error('unexpected rev-parse output');
-    const repoRoot = dirname(common);
+    // resolve(): git prints forward slashes on Windows (C:/x/repo); normalise to native separators.
+    const repoRoot = resolve(dirname(common));
     let branch: string | undefined;
     try {
       branch = (await git(cwd, ['branch', '--show-current'])).trim() || undefined;
