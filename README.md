@@ -38,7 +38,7 @@ npx agent-office --demo     # fake data, no ~/.claude needed
 npx agent-office --port 5000
 ```
 
-Requires Node 20 or newer. If the port is taken, pick another with `--port`. Other flags: `--claude-home <dir>` (default `~/.claude`, or the `CLAUDE_HOME` env var) and `--with-laya` (see [below](#optional-laya-classifier)).
+Requires Node 20 or newer, on macOS, Linux or Windows ([platform status](#platforms)). If the port is taken, pick another with `--port`. Other flags: `--claude-home <dir>` (default `~/.claude`, or the `CLAUDE_HOME` env var) and `--with-laya` (see [below](#optional-laya-classifier)).
 
 Out of the box the status (working, waiting, done) is a well-informed guess. For exact status, install the small [plugin](#plugin-exact-status).
 
@@ -177,7 +177,7 @@ Manual fallback: add the hooks to `~/.claude/settings.json` yourself, with an ab
 }
 ```
 
-The script needs `sh` and `curl`; `jq` is used if present but not required.
+The script needs `sh` and `curl`; `jq` is used if present but not required. On Windows it runs in Git Bash, which Claude Code uses anyway (untested, see [Platforms](#platforms)).
 
 ## Optional: Laya classifier
 
@@ -189,7 +189,7 @@ npm run laya                 # same, from a checkout
 npx agent-office --with-laya # start Laya together with agent-office
 ```
 
-Requires [`uv`](https://docs.astral.sh/uv/) (`brew install uv`). Environment variables:
+Requires [`uv`](https://docs.astral.sh/uv/) (`brew install uv`, on Windows `winget install --id=astral-sh.uv -e`). Environment variables:
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -210,10 +210,19 @@ The office has no windows to the outside.
 - `--with-laya` and `agent-office laya` run `uvx`, which on first use downloads the `laya` package and its dependencies from PyPI and the classifier model from Hugging Face. After that they run from the local cache. The model download uses plain HTTPS (`HF_HUB_DISABLE_XET=1` is set by default because the Xet CDN download tends to fail with `CAS Client Error`); set `HF_HUB_DISABLE_XET=0` to opt back in.
 - The app writes only a port file in `~/.config/agent-office/` and a role cache and a skill cache in `~/.cache/agent-office/`.
 
+## Platforms
+
+| Platform | Status |
+|---|---|
+| macOS | developed and used daily |
+| Linux | unit tests pass in CI; not yet checked end to end with a real Claude Code ([#1](https://github.com/PeterHasitschka/agent-office/issues/1)) |
+| Windows | **experimental and untested**: unit tests pass in CI and known gaps are patched, but it has never run against a real Claude Code on Windows ([#2](https://github.com/PeterHasitschka/agent-office/issues/2)). Reports welcome. |
+
+On Windows, sessions are only found when Claude Code writes the working directory into its session file (current versions do); there is no fallback that asks the operating system.
+
 ## Known limits
 
 - It relies on Claude Code internals (process list, transcript and sub-agent file layout) that can change between releases. When an update moves the furniture, figures may sit in the wrong place until agent-office catches up.
-- macOS and Linux only for now.
 - Without the plugin, heuristics may misjudge long-running tools (a quiet transcript looks like "finished").
 - Role detection is a best guess from names and descriptions, and so is the skill category.
 - A background shell whose process dies without Claude Code noticing keeps its monitor until the session ends.
