@@ -1,8 +1,31 @@
 # agent-office
 
-A local web app that turns your running [Claude Code](https://claude.com/claude-code) sessions into a pixel-art office building. Each repo is a floor, each Claude Code session is a room, and every sub-agent is a small chibi figure whose look depends on its role (builder, critic, detective, ...). When Claude waits for you, the lead raises a hand. Finished sub-agents fall asleep and go home after 30 minutes.
+**Your Claude Code agents, as tiny pixel-art office workers.**
 
-_Screenshot coming soon._
+![agent-office demo: a three-floor pixel office with working, waiting and sleeping agents and a skill corner](docs/screenshot.png)
+
+You have three Claude Code sessions open, two of them spawned sub-agents, one is quietly waiting for an answer, and you have lost track. agent-office turns all of that into an office building: each repo is a floor, each session is a room, and every sub-agent is a small figure at a desk. Reviewers wear grey suits, testers wear lab coats, and whoever needs you raises a hand.
+
+It runs locally, reads `~/.claude` without touching it, and needs no setup to try.
+
+```sh
+npx agent-office --demo --open   # a made-up office, no Claude Code needed
+npx agent-office --open          # your real one
+```
+
+## What you're looking at
+
+| In the picture | Meaning |
+|---|---|
+| a floor | a repository (or any working directory) |
+| a room | one running Claude Code session; its sign shows the `/rename` name, or repo and branch |
+| the person in the suit | the lead, i.e. the session itself |
+| everyone else | sub-agents, dressed by [role](#roles) |
+| a speech bubble with `?` | waiting for you |
+| `zZ` | finished, napping; goes home after 30 minutes |
+| a dark room | the session ended (stays dark for 30 minutes) |
+| the room full of machines | the [skill corner](#skill-corner): someone is using a skill |
+| small monitors under a desk | [background shells](#background-shells) that agent started |
 
 ## Quick start
 
@@ -13,7 +36,9 @@ npx agent-office --demo     # fake data, no ~/.claude needed
 npx agent-office --port 5000
 ```
 
-Requires Node 20 or newer. If the port is taken, pick another with `--port`. Other flags: `--claude-home <dir>` (default `~/.claude`, or the `CLAUDE_HOME` env var) and `--with-laya` (see below).
+Requires Node 20 or newer. If the port is taken, pick another with `--port`. Other flags: `--claude-home <dir>` (default `~/.claude`, or the `CLAUDE_HOME` env var) and `--with-laya` (see [below](#optional-laya-classifier)).
+
+Out of the box the status (working, waiting, done) is a well-informed guess. For exact status, install the small [plugin](#plugin-exact-status).
 
 ## How it works
 
@@ -29,11 +54,9 @@ The lead figure is named after the session name when one is available, otherwise
 
 From these it derives a status per figure (working, waiting for you, finished, sleeping) using heuristics, for example how recently the transcript was written and whether the last message is a question or a pending tool call. The snapshot is pushed to the browser over a local stream.
 
-For exact status instead of heuristics, install the optional [plugin](#plugin-exact-status), which forwards Claude Code hook events to the local server.
-
 ## Roles
 
-A sub-agent's role is picked from its name and description by keyword rules. Anything that matches nothing is an `intern`.
+A sub-agent's role is picked from its name and description by keyword rules. Anything that matches nothing becomes an `intern` and gets a coffee.
 
 | Role id | Look | Matches (default keywords) |
 |---|---|---|
@@ -70,7 +93,7 @@ Keywords are regular-expression fragments (case-insensitive), so characters such
 
 ## Skill corner
 
-When a lead or sub-agent is working with a skill, its figure walks to a machine in a "SKILLS" room on the right side of the floor and uses it there. The room only exists while someone on that floor has an active skill, and each skill in use gets its own machine with a name sign (two skills of the same category are two machines that look alike).
+When a lead or sub-agent is working with a skill, its figure walks over to a machine in a "SKILLS" room on the right side of the floor and uses it there. The room only exists while someone on that floor has an active skill, and each skill in use gets its own machine with a name sign (two skills of the same category are two machines that look alike).
 
 What counts as a skill use (the latest one wins):
 
@@ -112,10 +135,10 @@ Create `~/.config/agent-office/skills.json`. Like the role override it works per
 
 ## Staff
 
-Sub-agents of the same type in one session are one recurring employee, not a new figure per run. A `reviewer` that was started five times is one persona with five runs; the tooltip shows its role, the run count (e.g. `5. Einsatz`) and up to three recent tasks. If two instances of a type run at the same time, the second one shows up as a colleague named `reviewer 2` (and so on). Personas never span sessions, so two worktrees have separate teams.
+Sub-agents of the same type in one session are one recurring employee, not a new hire per run. A `reviewer` that was started five times is one persona with five runs; the tooltip shows its role, the run count (e.g. `5. Einsatz`) and up to three recent tasks. If two instances of a type run at the same time, the second one shows up as a colleague named `reviewer 2` (and so on). Personas never span sessions, so two worktrees have separate teams.
 
-- An employee who was done or idle and starts working again stretches and picks up a coffee before sitting down (staff only; the department head just keeps working on the next prompt).
-- An instance that has not written anything for more than 30 minutes counts as ended (crashed or aborted); otherwise a dead sub-agent would block its slot forever. Pauses under 30 minutes still count as the same running agent: it keeps its own figure and shows as idle, not done.
+- An employee who was done or idle and starts working again stretches and grabs a coffee before sitting down (staff only; the lead just keeps working on the next prompt).
+- An instance that has not written anything for more than 30 minutes counts as ended (crashed or aborted); otherwise a dead sub-agent would block its desk forever. Pauses under 30 minutes still count as the same running agent: it keeps its own figure and shows as idle, not done.
 - A persona goes home after its last run has been finished for 30 minutes.
 
 ## Background shells
@@ -123,26 +146,6 @@ Sub-agents of the same type in one session are one recurring employee, not a new
 When an agent runs a command in the background (a dev server, a test watcher, a log tail), a small monitor appears under its desk, one per running shell. Three monitors fit; with more, the third one glows amber. When a background shell ends with status `failed`, a red screen flashes for a few seconds. The tooltip lists the running shells with their description (or the shortened command) and how long they have been running.
 
 A shell counts as running from the moment Claude Code reports it as backgrounded until a completion notification (`completed`, `failed`, `killed`, `stopped`) or a `TaskStop` call shows up in the transcript. Because a dev server can run for hours, agent-office reads each transcript completely once and then only the appended part. Shells of a finished sub-agent are not shown, and for a resumed session only shells started by the current process count.
-
-## Optional: Laya classifier
-
-Laya is **off by default**: agent-office sends no request to it unless you start with `--with-laya` or set `LAYA_URL` explicitly. Keyword rules always run first. Only agents they cannot place go to [Laya](https://pypi.org/project/laya/), a local zero-shot text classifier. Treat it as a hint: zero-shot accuracy is limited, and results below the confidence threshold fall back to `intern`.
-
-```sh
-npx agent-office laya        # run the Laya server on its own
-npm run laya                 # same, from a checkout
-npx agent-office --with-laya # start Laya together with agent-office
-```
-
-Requires [`uv`](https://docs.astral.sh/uv/) (`brew install uv`). Environment variables:
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `LAYA_URL` | unset (`http://127.0.0.1:8000` with `--with-laya`) | where agent-office finds the Laya server; setting it enables Laya |
-| `LAYA_MODEL` | server default | model name sent to Laya |
-| `LAYA_THRESHOLD` | `0.5` | minimum confidence to accept a Laya result |
-
-If you run `laya-serve` yourself (e.g. `npx agent-office laya` in another terminal), set `LAYA_URL` so agent-office uses it. agent-office checks `GET /health` every 60 s and only uses Laya while that answers with a 2xx status. If Laya is not running, agent-office simply uses the keyword rules.
 
 ## Plugin (exact status)
 
@@ -155,7 +158,7 @@ In Claude Code:
 /plugin install agent-office@agent-office
 ```
 
-`npx agent-office plugin` prints the marketplace path for your installation. `marketplace add` also accepts a git repository once you host one.
+`npx agent-office plugin` prints the marketplace path for your installation. `marketplace add` also accepts a git repository URL.
 
 Manual fallback: add the hooks to `~/.claude/settings.json` yourself, with an absolute path to `plugin/hooks/send-event.sh`. Repeat the entry for each event listed above:
 
@@ -174,7 +177,29 @@ Manual fallback: add the hooks to `~/.claude/settings.json` yourself, with an ab
 
 The script needs `sh` and `curl`; `jq` is used if present but not required.
 
+## Optional: Laya classifier
+
+Some sub-agents have names no keyword rule could ever guess. For those you can add [Laya](https://pypi.org/project/laya/), a local zero-shot text classifier. It is **off by default**: agent-office sends no request to it unless you start with `--with-laya` or set `LAYA_URL` explicitly. Keyword rules always run first; only agents they cannot place go to Laya. Treat it as a hint: zero-shot accuracy is limited, and results below the confidence threshold fall back to `intern`.
+
+```sh
+npx agent-office laya        # run the Laya server on its own
+npm run laya                 # same, from a checkout
+npx agent-office --with-laya # start Laya together with agent-office
+```
+
+Requires [`uv`](https://docs.astral.sh/uv/) (`brew install uv`). Environment variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LAYA_URL` | unset (`http://127.0.0.1:8000` with `--with-laya`) | where agent-office finds the Laya server; setting it enables Laya |
+| `LAYA_MODEL` | server default | model name sent to Laya |
+| `LAYA_THRESHOLD` | `0.5` | minimum confidence to accept a Laya result |
+
+If you run `laya-serve` yourself (e.g. `npx agent-office laya` in another terminal), set `LAYA_URL` so agent-office uses it. agent-office checks `GET /health` every 60 s and only uses Laya while that answers with a 2xx status. If Laya is not running, agent-office simply uses the keyword rules.
+
 ## Privacy
+
+The office has no windows to the outside.
 
 - The server binds to `127.0.0.1` only and checks the `Host` and `Origin` headers, so other machines and other websites cannot talk to it.
 - `~/.claude` is only read, never written.
@@ -185,23 +210,27 @@ The script needs `sh` and `curl`; `jq` is used if present but not required.
 
 ## Known limits
 
-- It relies on Claude Code internals (process list, transcript and sub-agent file layout) that can change between releases.
-- macOS and Linux only.
+- It relies on Claude Code internals (process list, transcript and sub-agent file layout) that can change between releases. When an update moves the furniture, figures may sit in the wrong place until agent-office catches up.
+- macOS and Linux only for now.
 - Without the plugin, heuristics may misjudge long-running tools (a quiet transcript looks like "finished").
 - Role detection is a best guess from names and descriptions, and so is the skill category.
 - A background shell whose process dies without Claude Code noticing keeps its monitor until the session ends.
+- Some UI labels (tooltips, role names) are in German.
 
 ## Development
 
 ```sh
 npm install
-npm test           # vitest
-npm run build      # bundles to dist/
-npm run dev        # server from source (tsx)
-npm run demo       # demo data, opens the browser
+npm test             # vitest
+npm run typecheck    # tsc --noEmit
+npm run build        # bundles to dist/
+npm run dev          # server from source (tsx)
+npm run demo         # demo data, opens the browser
 ```
 
-The sprite sheet of all roles is served at `/sprite-sheet.html`. Append `?hour=13` to the main page to pin the sky clock to a given hour (handy for screenshots).
+The sprite sheet of all roles and machines is served at `/sprite-sheet.html`. Append `?hour=13` to the main page to pin the sky clock to a given hour (handy for screenshots).
+
+If you work on agent-office with Claude Code, [`CLAUDE.md`](CLAUDE.md) and the project skills in [`.claude/skills/`](.claude/skills/) cover the architecture, testing, running the app and what to do when a Claude Code update changes its file formats. The README tables above are checked against `roles/*.json` by `test/readme.test.ts`, so a changed keyword without a README update fails the tests.
 
 ## License
 
