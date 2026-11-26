@@ -23,12 +23,13 @@
   ],
   "scripts": {
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "build": "node build.mjs",
     "dev": "tsx src/server/cli.ts",
     "laya": "tsx src/server/cli.ts laya",
     "start:all": "tsx src/server/cli.ts --with-laya --open",
     "demo": "tsx src/server/cli.ts --demo --open",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
   "engines": {
     "node": ">=20"
