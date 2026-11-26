@@ -13,6 +13,8 @@ afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 describe('cwdToSlug', () => {
   it('replaces non-alphanumerics with dashes', () => {
     expect(cwdToSlug('/Users/a/my.repo/wt')).toBe('-Users-a-my-repo-wt');
+    // Windows paths: drive colon and backslashes become dashes as well
+    expect(cwdToSlug('C:\\Users\\a\\my.repo')).toBe('C--Users-a-my-repo');
   });
 });
 

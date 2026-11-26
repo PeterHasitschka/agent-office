@@ -42,6 +42,8 @@ export const defaultProbe: ProcessProbe = {
   async cwdOf(pid) {
     try {
       if (process.platform === 'linux') return await readlink(`/proc/${pid}/cwd`);
+      // Windows offers no simple way to read another process's cwd; rely on `cwd` in the session file.
+      if (process.platform === 'win32') return null;
       return await lsofCwd(pid);
     } catch {
       return null;

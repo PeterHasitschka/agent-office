@@ -168,10 +168,10 @@ Manual fallback: add the hooks to `~/.claude/settings.json` yourself, with an ab
 {
   "hooks": {
     "Notification": [
-      { "hooks": [ { "type": "command", "command": "/absolute/path/to/agent-office/plugin/hooks/send-event.sh", "async": true, "timeout": 2 } ] }
+      { "hooks": [ { "type": "command", "command": "sh /absolute/path/to/agent-office/plugin/hooks/send-event.sh", "async": true, "timeout": 2 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "/absolute/path/to/agent-office/plugin/hooks/send-event.sh", "async": true, "timeout": 2 } ] }
+      { "hooks": [ { "type": "command", "command": "sh /absolute/path/to/agent-office/plugin/hooks/send-event.sh", "async": true, "timeout": 2 } ] }
     ]
   }
 }

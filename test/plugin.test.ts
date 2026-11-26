@@ -56,7 +56,9 @@ function run(input: string, env: Record<string, string>, pathOverride?: string) 
   });
 }
 
-describe('send-event.sh', () => {
+// The script runs under a POSIX sh (Git Bash on Windows); these tests build a fake PATH with
+// symlinked tools, which needs a Unix host.
+describe.skipIf(process.platform === 'win32')('send-event.sh', () => {
   it('posts identical JSON to the port from AGENT_OFFICE_PORT', async () => {
     const { got, port } = await stub();
     const json = JSON.stringify({ hook_event_name: 'Notification', session_id: 's1', message: 'needs you' });
@@ -119,7 +121,8 @@ describe('plugin manifests', () => {
       for (const g of groups) {
         for (const h of g.hooks) {
           expect(h.type).toBe('command');
-          expect(h.command).toContain('send-event.sh');
+          // run through sh: works without the executable bit and in Git Bash on Windows
+          expect(h.command).toBe('sh "${CLAUDE_PLUGIN_ROOT}/hooks/send-event.sh"');
           expect(h.async).toBe(true);
           expect(h.timeout).toBeLessThanOrEqual(2);
         }

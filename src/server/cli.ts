@@ -72,7 +72,9 @@ function hasUv(): boolean {
 
 function spawnLaya(): ChildProcess | null {
   if (!hasUv()) {
-    console.error('uv nicht gefunden. Installieren mit:\n  brew install uv\n  curl -LsSf https://astral.sh/uv/install.sh | sh');
+    console.error(process.platform === 'win32'
+      ? 'uv nicht gefunden. Installieren mit:\n  winget install --id=astral-sh.uv -e\n  (oder siehe https://docs.astral.sh/uv/getting-started/installation/)'
+      : 'uv nicht gefunden. Installieren mit:\n  brew install uv\n  curl -LsSf https://astral.sh/uv/install.sh | sh');
     return null;
   }
   const child = spawn('uvx', ['--from', 'laya[serve]', 'laya-serve'], {
@@ -84,10 +86,19 @@ function spawnLaya(): ChildProcess | null {
   return child;
 }
 
+/** Command that opens a URL in the default browser on this platform. */
+export function browserCommand(url: string, platform: NodeJS.Platform = process.platform): [string, string[]] {
+  if (platform === 'darwin') return ['open', [url]];
+  // `start` is a cmd built-in; the empty "" is the window title, otherwise a quoted URL would become the title.
+  if (platform === 'win32') return ['cmd', ['/c', 'start', '""', url]];
+  return ['xdg-open', [url]];
+}
+
 function openBrowser(url: string): void {
-  const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const [cmd, cmdArgs] = browserCommand(url);
   try {
-    const c = spawn(cmd, [url], { stdio: 'ignore', detached: true });
+    // windowsVerbatimArguments: pass `start "" <url>` to cmd unchanged (Node would otherwise escape the quotes).
+    const c = spawn(cmd, cmdArgs, { stdio: 'ignore', detached: true, windowsHide: true, windowsVerbatimArguments: true });
     c.on('error', () => {});
     c.unref();
   } catch {
