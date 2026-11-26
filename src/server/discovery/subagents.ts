@@ -42,6 +42,9 @@ async function readInstances(sessionDir: string): Promise<SubagentInstance[]> {
     } catch {
       // jsonl missing: fall back to meta.json times
     }
+    // A file cannot start after its last write; birthtime can be later on copied/restored files
+    // and on Linux when mtime was set explicitly.
+    startedAt = Math.min(startedAt, lastWriteAt);
     out.push({
       id,
       agentType: typeof meta.agentType === 'string' ? meta.agentType : 'unknown',
