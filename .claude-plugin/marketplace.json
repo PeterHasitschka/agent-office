@@ -10,6 +10,12 @@
       "source": "./plugin",
       "description": "Sends Claude Code hook events to the local agent-office server",
       "version": "0.1.0"
+    },
+    {
+      "name": "agent-office-buddy",
+      "source": "./buddy",
+      "description": "An agent-office figure sitting at the right edge above the Claude Code prompt",
+      "version": "0.1.0"
     }
   ]
 }

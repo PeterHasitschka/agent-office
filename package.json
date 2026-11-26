@@ -18,6 +18,7 @@
   "files": [
     "dist",
     "plugin",
+    "buddy",
     ".claude-plugin",
     "roles"
   ],
@@ -29,6 +30,7 @@
     "laya": "tsx src/server/cli.ts laya",
     "start:all": "tsx src/server/cli.ts --with-laya --open",
     "demo": "tsx src/server/cli.ts --demo --open",
+    "buddy:frames": "tsx scripts/buddy-frames.ts",
     "prepublishOnly": "npm run typecheck && npm run build && npm test"
   },
   "engines": {

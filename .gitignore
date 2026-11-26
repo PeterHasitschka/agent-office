@@ -2,3 +2,5 @@
 node_modules/
 dist/
 docs/superpowers/
+buddy/.claude-plugin/types/
+buddy/tsconfig.json
