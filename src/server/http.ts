@@ -71,10 +71,11 @@ function readBody(req: http.IncomingMessage): Promise<string | null> {
         if (size > MAX_DRAIN) req.destroy(); // don't drain forever
         return;
       }
+      // Without a content-length we only notice the size while reading. Keep draining and answer at
+      // 'end': closing a socket with unread data makes Windows send RST, which loses the 413.
       if (size > MAX_BODY) {
         tooBig = true;
         chunks.length = 0;
-        resolveBody(null);
       } else chunks.push(c);
     });
     req.on('end', () => resolveBody(tooBig ? null : Buffer.concat(chunks).toString('utf8')));
