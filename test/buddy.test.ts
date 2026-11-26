@@ -7,7 +7,9 @@ import { ALL_ROLES } from '../src/web/sprites.js';
 
 describe('buddy mod', () => {
   it('frames.ts is up to date with the sprites (run npm run buddy:frames)', () => {
-    expect(readFileSync(new URL('../buddy/hooks/frames.ts', import.meta.url), 'utf8')).toBe(framesSource());
+    // Windows checkouts may turn LF into CRLF.
+    const onDisk = readFileSync(new URL('../buddy/hooks/frames.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+    expect(onDisk).toBe(framesSource());
   });
 
   it('has every role', () => {
