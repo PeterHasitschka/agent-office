@@ -30,7 +30,8 @@ let repo2: string;
 let plain: string;
 
 beforeAll(() => {
-  const root = realpathSync(base);
+  // .native also expands Windows 8.3 short names (RUNNER~1), which git never prints
+  const root = realpathSync.native(base);
   repo = join(root, 'proj');
   mkdirSync(repo);
   sh(repo, 'init', '-b', 'main');
