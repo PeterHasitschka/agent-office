@@ -179,6 +179,17 @@ Manual fallback: add the hooks to `~/.claude/settings.json` yourself, with an ab
 
 The script needs `sh` and `curl`; `jq` is used if present but not required. On Windows it runs in Git Bash, which Claude Code uses anyway (untested, see [Platforms](#platforms)).
 
+## Buddy above the prompt (optional mod)
+
+`buddy/` is a second, independent Claude Code plugin: one office figure sits at the right edge of the band above the prompt, 6×4 cells. It works while Claude answers, stands when the turn is done and falls asleep after 5 minutes without a prompt. It does not need the agent-office server.
+
+```
+/plugin marketplace add /path/to/agent-office
+/plugin install agent-office-buddy@agent-office
+```
+
+The figure is random per session; pick a fixed one with the plugin option `role` (`lead`, `detective`, ... or `random`). It needs a Claude Code build with plugin hooks modules (early access) and a terminal that draws inline pictures (kitty, Ghostty, iTerm2 3.5+); elsewhere the spot stays empty. The picture only changes when the pose changes, because terminals briefly clear the cells on every swap. The sprites come from `src/web/sprites.ts`; after changing them run `npm run buddy:frames` (a test fails while `buddy/hooks/frames.ts` is stale).
+
 ## Optional: Laya classifier
 
 Some sub-agents have names no keyword rule could ever guess. For those you can add [Laya](https://pypi.org/project/laya/), a local zero-shot text classifier. It is **off by default**: agent-office sends no request to it unless you start with `--with-laya` or set `LAYA_URL` explicitly. Keyword rules always run first; only agents they cannot place go to Laya. Treat it as a hint: zero-shot accuracy is limited, and results below the confidence threshold fall back to `intern`.

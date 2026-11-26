@@ -1,0 +1,14 @@
+{
+  "name": "agent-office-buddy",
+  "version": "0.1.0",
+  "description": "An agent-office pixel figure sitting at the right edge above the Claude Code prompt",
+  "userConfig": {
+    "role": {
+      "type": "string",
+      "title": "Figure",
+      "description": "Which agent-office figure sits above the prompt; random picks one per session",
+      "default": "random",
+      "options": ["random", "lead", "intern", "builder", "detective", "critic", "lab", "archivist", "poet", "artist", "strategist", "janitor", "doctor", "guard", "secretary"]
+    }
+  }
+}
