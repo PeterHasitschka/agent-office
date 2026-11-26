@@ -31,6 +31,15 @@ npm run typecheck                         # tests are type-checked as well
 - **Transcript lines.** Write JSONL entries shaped like Claude Code's (`type`, `timestamp`, `message.content[]` with `tool_use` / `tool_result` blocks). Keep them minimal: only the fields the code reads.
 - **Robustness cases.** For every new parser add at least one test with a missing field, wrong type or corrupt line; the code must skip, not throw.
 
+## Cross-platform
+
+CI runs on Linux, macOS and Windows. Nobody runs Windows locally, so write tests that survive it:
+
+- Build paths with `join`, compare against `realpathSync.native(...)` (expands Windows 8.3 names like `RUNNER~1`, which git never prints).
+- No `/bin/sh`, `lsof` or symlinked tool dirs unless the test is `describe.skipIf(process.platform === 'win32')` with a comment why.
+- Servers must not close a socket with unread request data (Windows answers with RST and the client loses the response).
+- Platform-specific behaviour goes behind a function that takes `platform` as a parameter (see `browserCommand` in `cli.ts`), so all branches are tested on every OS.
+
 ## Data rule
 
 Everything in tests is invented: `/w/a`, `proj`, `acme:*`, `code-reviewer`, `Find usages`. Never paste a line from a real transcript; rebuild the shape by hand with neutral values (see the `fix-after-claude-code-update` skill).
